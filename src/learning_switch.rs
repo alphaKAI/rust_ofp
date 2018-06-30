@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 use std::net::TcpStream;
+use std::time;
+use std::thread;
+use std::thread::JoinHandle;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use rust_ofp::ofp_controller::openflow0x01::OF0x01Controller;
 use rust_ofp::openflow0x01::{Action, PacketIn, PacketOut, Pattern, PseudoPort, SwitchFeatures};
 use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
@@ -22,6 +27,8 @@ use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
 ///    the destination is unknown, it floods the packet out all ports.
 pub struct LearningSwitch {
     known_hosts: HashMap<u64, u16>,
+    probing_thread: Option<JoinHandle<()>>,
+    running: Arc<AtomicBool>
 }
 
 impl LearningSwitch {
@@ -72,12 +79,38 @@ impl LearningSwitch {
 
 impl OF0x01Controller for LearningSwitch {
     fn new() -> LearningSwitch {
-        LearningSwitch { known_hosts: HashMap::new() }
+        LearningSwitch { known_hosts: HashMap::new(),
+                         probing_thread: None,
+                         running: Arc::new(AtomicBool::new(false))
+        }
     }
 
-    fn switch_connected(&mut self, _: u64, _: SwitchFeatures, _: &mut TcpStream) {}
+    fn switch_connected(&mut self, _: u64, _: SwitchFeatures, _: &mut TcpStream) {
+        self.running.store(true, Ordering::Relaxed);
 
-    fn switch_disconnected(&mut self, _: u64) {}
+        let local_running = self.running.clone();
+        let handle = thread::spawn(move || {
+            loop {
+                if !local_running.load(Ordering::Relaxed) {
+                    break;
+                }
+                let ten_seconds = time::Duration::from_secs(10);
+                thread::sleep(ten_seconds);
+                println!("RUNNING");
+            }
+        });
+        self.probing_thread = Some(handle);
+    }
+
+    fn switch_disconnected(&mut self, _: u64) {
+        self.running.store(false, Ordering::Relaxed);
+        match self.probing_thread.take() {
+            Some(t) => {
+                t.join();
+            },
+            None => {}
+        }
+    }
 
     fn packet_in(&mut self, sw: u64, _: u32, pkt: PacketIn, stream: &mut TcpStream) {
         self.learning_packet_in(&pkt);
