@@ -6,7 +6,21 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bits::*;
 use packet::{bytes_of_mac, mac_of_bytes};
 
-const OFP_MAX_TABLE_NAME_LEN: usize = 32;
+const OFP_MAX_TABLE_NAME_LENGTH: usize = 32;
+const DESC_STR_LENGTH: usize = 256;
+const SERIAL_NUM_LENGTH: usize = 32;
+
+fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {
+    for _ in 0..count {
+        bytes.write_u8(0);
+    }
+}
+
+fn skip_padding_bytes(bytes: &mut Cursor<Vec<u8>>, count: usize) {
+    for _ in 0..count {
+        bytes.read_u8().unwrap();
+    }
+}
 
 /// OpenFlow 1.0 message type codes, used by headers to identify meaning of the rest of a message.
 #[repr(u8)]
@@ -930,17 +944,14 @@ pub enum StatsReqBody {
     FlowStatsBody { // Also used for aggregate stats
         pattern: Pattern,
         table_id: u8,
-        pad: u8,
         out_port: u16
     },
     TableBody,
     PortBody {
         port_no: u16,
-        pad: [u8; 6]
     },
     QueueBody {
         port_no: u16,
-        pad: [u8; 2],
         queue_id: u32,
     },
     VendorBody
@@ -987,31 +998,27 @@ impl MessageType for StatsReq {
             StatsReqType::Flow | StatsReqType::Aggregate => {
                 let pattern = Pattern::parse(&mut bytes);
                 let table_id = bytes.read_u8().unwrap();
-                let pad = bytes.read_u8().unwrap();
+                skip_padding_bytes(&mut bytes, 1);
                 let out_port = bytes.read_u16::<BigEndian>().unwrap();
 
                 StatsReqBody::FlowStatsBody {
-                    pattern, table_id, pad, out_port
+                    pattern, table_id, out_port
                 }
             },
             StatsReqType::Table => StatsReqBody::TableBody,
             StatsReqType::Port => {
                 let port_no = bytes.read_u16::<BigEndian>().unwrap();
-                let mut pad = [0; 6];
-                bytes.read(&mut pad).unwrap();
+                skip_padding_bytes(&mut bytes, 6);
                 StatsReqBody::PortBody {
-                    port_no,
-                    pad
+                    port_no
                 }
             },
             StatsReqType::Queue => {
                 let port_no = bytes.read_u16::<BigEndian>().unwrap();
-                let mut pad = [0; 2];
-                bytes.read(&mut pad).unwrap();
+                skip_padding_bytes(&mut bytes, 2);
                 let queue_id = bytes.read_u32::<BigEndian>().unwrap();
                 StatsReqBody::QueueBody {
                     port_no,
-                    pad,
                     queue_id
                 }
             },
@@ -1032,26 +1039,281 @@ impl MessageType for StatsReq {
         bytes.write_u16::<BigEndian>(sr.flags).unwrap();
         match sr.body {
             StatsReqBody::DescBody => {},
-            StatsReqBody::FlowStatsBody{pattern, table_id, pad, out_port} => {
+            StatsReqBody::FlowStatsBody{pattern, table_id, out_port} => {
                 Pattern::marshal(pattern, bytes);
                 bytes.write_u8(table_id).unwrap();
-                bytes.write_u8(pad).unwrap();
+                write_padding_bytes(bytes, 1);
                 bytes.write_u16::<BigEndian>(out_port).unwrap();
             },
             StatsReqBody::TableBody => {},
-            StatsReqBody::PortBody{ port_no, pad } => {
+            StatsReqBody::PortBody{ port_no } => {
                 bytes.write_u16::<BigEndian>(port_no).unwrap();
-                bytes.write_all(&pad).unwrap();
+                write_padding_bytes(bytes, 6);
             },
-            StatsReqBody::QueueBody{ port_no, pad, queue_id } => {
+            StatsReqBody::QueueBody{ port_no, queue_id } => {
                 bytes.write_u16::<BigEndian>(port_no).unwrap();
-                bytes.write_all(&pad).unwrap();
+                write_padding_bytes(bytes, 2);
                 bytes.write_u32::<BigEndian>(queue_id).unwrap();
             },
             StatsReqBody::VendorBody => {}
         }
     }
 }
+
+pub struct FlowStats {
+    table_id: u8,
+    pattern: Pattern,
+    duration_sec: u32,
+    duration_nsec: u32,
+    priority: u16,
+    idle_timeout: u16,
+    hard_timeout: u16,
+    cookie: u64,
+    packet_count: u64,
+    byte_count: u64,
+    actions: Vec<Action>
+}
+
+pub struct TransmissionCounter {
+    rx: u64,
+    tx: u64
+}
+
+pub struct PortStats {
+    port_no: u16,
+    packets: TransmissionCounter,
+    bytes: TransmissionCounter,
+    dropped: TransmissionCounter,
+    errors: TransmissionCounter,
+    rx_frame_errors: u64,
+    rx_over_errors: u64,
+    rx_crc_errors: u64,
+    collisions: u64
+}
+
+pub struct QueueStats {
+    port_no: u16,
+    queue_id: u32,
+    tx_bytes: u64,
+    tx_packets: u64,
+    tx_errors: u64
+}
+
+pub struct TableStats {
+    table_id: u8,
+    name: [char; OFP_MAX_TABLE_NAME_LENGTH],
+    wildcards: u32,
+    max_entries: u32,
+    active_count: u32,
+    lookup_count: u64,
+    matched_count: u64
+}
+
+/// Type of Body for Stats Response
+pub enum StatsRespBody {
+    DescBody {
+        manufacturer_desc: String,
+        hardware_desc: String,
+        software_desc: String,
+        serial_number: String,
+        datapath_desc: String
+    },
+    FlowStatsBody {
+        flow_stats: Vec<FlowStats>
+    },
+    AggregateStatsBody {
+        packet_count: u64,
+        byte_count: u64,
+        flow_count: u32,
+    },
+    TableBody {
+        table_stats: Vec<TableStats>
+    },
+    PortBody {
+        port_stats: Vec<PortStats>
+    },
+    QueueBody {
+        queue_stats: Vec<QueueStats>
+    },
+    VendorBody
+}
+
+pub struct StatsResp {
+    pub req_type: StatsReqType,
+    pub flags: u16,
+    pub body: StatsRespBody
+}
+
+#[repr(packed)]
+struct OfpStatsResp(u16, u16);
+#[repr(packed)]
+struct OfpStatsRespDescBody([char; DESC_STR_LENGTH], [char; DESC_STR_LENGTH],
+                            [char; DESC_STR_LENGTH], [char; SERIAL_NUM_LENGTH],
+                            [char; DESC_STR_LENGTH]);
+#[repr(packed)]
+struct OfpStatsRespFlowStats(u16, u8, u8, u32, u32, u16, u16, u16, [u8; 6],
+                             u64, u64, u64);
+#[repr(packed)]
+struct OfpStatsRespAggregateBody(u64, u64, u32, [u8; 4]);
+#[repr(packed)]
+struct OfpStatsRespTableStats(u8, [u8; 3], [char; OFP_MAX_TABLE_NAME_LENGTH],
+                             u32, u32, u32, u64, u64);
+#[repr(packed)]
+struct OfpStatsRespQueueStats(u16, [u8; 2], u32, u64, u64, u64);
+#[repr(packed)]
+struct OfpStatsRespPortStats(u16, [u8; 6], [u64; 2],
+                             [u64; 2], [u64; 2], [u64; 2],
+                             u64, u64, u64, u64);
+#[repr(packed)]
+struct OfpStatsRespQueueBody(u16, [u8; 2], u32);
+
+impl FlowStats {
+    fn size_of(stats : &FlowStats) -> usize {
+        Pattern::size_of(&stats.pattern) +
+            size_of::<OfpStatsRespFlowStats>() +
+            Action::size_of_sequence(&stats.actions)
+    }
+}
+
+impl StatsResp {
+}
+
+impl MessageType for StatsResp {
+    fn size_of(msg: &StatsResp) -> usize {
+        size_of::<OfpStatsResp>() +
+            match msg.body {
+                StatsRespBody::DescBody{ .. } => size_of::<OfpStatsRespDescBody>(),
+                StatsRespBody::FlowStatsBody{ ref flow_stats } =>
+                    flow_stats.iter().map(|stats| FlowStats::size_of(stats)).sum(),
+                StatsRespBody::AggregateStatsBody{ .. } => size_of::<OfpStatsRespAggregateBody>(),
+                StatsRespBody::TableBody{ ref table_stats } =>
+                    table_stats.len() * size_of::<OfpStatsRespTableStats>(),
+                StatsRespBody::PortBody{ ref port_stats } =>
+                    port_stats.len() * size_of::<OfpStatsRespPortStats>(),
+                StatsRespBody::QueueBody{ ref queue_stats } =>
+                    queue_stats.len() * size_of::<OfpStatsRespQueueStats>(),
+                StatsRespBody::VendorBody => 0
+            }
+    }
+
+    fn parse(buf: &[u8]) -> StatsResp {
+        let mut bytes = Cursor::new(buf.to_vec());
+        let req_type = StatsReqType::from_u16(bytes.read_u16::<BigEndian>().unwrap());
+        let flags = bytes.read_u16::<BigEndian>().unwrap();
+        let body = match req_type {
+            StatsReqType::Desc => {
+                let mut input : [u8; DESC_STR_LENGTH] = [0; DESC_STR_LENGTH];
+                let mut serial_number_input : [u8; SERIAL_NUM_LENGTH] = [0; SERIAL_NUM_LENGTH];
+
+                bytes.read(&mut input);
+                let manufacturer_desc = String::from_utf8(input.to_vec()).unwrap();
+
+                bytes.read(&mut input);
+                let hardware_desc = String::from_utf8(input.to_vec()).unwrap();
+
+                bytes.read(&mut input);
+                let software_desc = String::from_utf8(input.to_vec()).unwrap();
+
+                bytes.read(&mut serial_number_input);
+                let serial_number = String::from_utf8(serial_number_input.to_vec()).unwrap();
+
+                bytes.read(&mut input);
+                let datapath_desc = String::from_utf8(input.to_vec()).unwrap();
+
+                StatsRespBody::DescBody {
+                    manufacturer_desc,
+                    hardware_desc,
+                    software_desc,
+                    serial_number,
+                    datapath_desc
+                }
+            },
+            StatsReqType::Flow => {
+                let mut flow_stats = Vec::<FlowStats>::new();
+
+                // TODO
+
+                StatsRespBody::FlowStatsBody {
+                    flow_stats
+                }
+            },
+            StatsReqType::Aggregate => {
+                let packet_count = bytes.read_u64::<BigEndian>().unwrap();
+                let byte_count = bytes.read_u64::<BigEndian>().unwrap();
+                let flow_count = bytes.read_u32::<BigEndian>().unwrap();
+                skip_padding_bytes(&mut bytes, 4);
+
+                StatsRespBody::AggregateStatsBody {
+                    packet_count, byte_count, flow_count
+                }
+            },
+            StatsReqType::Table => {
+                let mut table_stats = Vec::<TableStats>::new();
+
+                // TODO
+
+                StatsRespBody::TableBody {
+                    table_stats
+                }
+            },
+            StatsReqType::Port => {
+                let mut port_stats = Vec::<PortStats>::new();
+
+                // TODO
+
+                StatsRespBody::PortBody {
+                    port_stats
+                }
+            },
+            StatsReqType::Queue => {
+                let mut queue_stats = Vec::<QueueStats>::new();
+
+                // TODO
+
+                StatsRespBody::QueueBody {
+                    queue_stats
+                }
+            },
+            StatsReqType::Vendor => {
+                StatsRespBody::VendorBody {}
+            }
+        };
+
+        StatsResp {
+            req_type,
+            flags,
+            body
+        }
+    }
+
+    fn marshal(sr: StatsResp, bytes: &mut Vec<u8>) {
+        bytes.write_u16::<BigEndian>(sr.req_type as u16).unwrap();
+        bytes.write_u16::<BigEndian>(sr.flags).unwrap();
+        /*
+        match sr.body {
+            StatsReqBody::DescBody => {},
+            StatsReqBody::FlowStatsBody{pattern, table_id, out_port} => {
+                Pattern::marshal(pattern, bytes);
+                bytes.write_u8(table_id).unwrap();
+                write_padding_bytes(bytes, 1);
+                bytes.write_u16::<BigEndian>(out_port).unwrap();
+            },
+            StatsReqBody::TableBody => {},
+            StatsReqBody::PortBody{ port_no } => {
+                bytes.write_u16::<BigEndian>(port_no).unwrap();
+                write_padding_bytes(bytes, 6);
+            },
+            StatsReqBody::QueueBody{ port_no, queue_id } => {
+                bytes.write_u16::<BigEndian>(port_no).unwrap();
+                write_padding_bytes(bytes, 2);
+                bytes.write_u32::<BigEndian>(queue_id).unwrap();
+            },
+            StatsReqBody::VendorBody => {}
+        }
+        */
+    }
+}
+
 
 /// The data associated with a packet received by the controller.
 #[derive(Debug, Clone)]
