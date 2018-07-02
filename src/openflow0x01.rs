@@ -927,13 +927,7 @@ impl StatsReqType {
 /// Type of Body for Stats Requests
 pub enum StatsReqBody {
     DescBody,
-    FlowBody {
-        pattern: Pattern,
-        table_id: u8,
-        pad: u8,
-        out_port: u16
-    },
-    AggregateBody {
+    FlowStatsBody { // Also used for aggregate stats
         pattern: Pattern,
         table_id: u8,
         pad: u8,
@@ -964,8 +958,6 @@ struct OfpStatsReq(u16, u16);
 #[repr(packed)]
 struct OfpStatsReqFlowBody(u8, u8, u16);
 #[repr(packed)]
-struct OfpStatsReqAggregateBody(u8, u8, u16);
-#[repr(packed)]
 struct OfpStatsReqPortBody(u16, [u8; 6]);
 #[repr(packed)]
 struct OfpStatsReqQueueBody(u16, [u8; 2], u32);
@@ -978,8 +970,7 @@ impl MessageType for StatsReq {
         size_of::<OfpStatsReq>() +
             match msg.body {
                 StatsReqBody::DescBody => 0,
-                StatsReqBody::FlowBody{ .. } => size_of::<Pattern>() + size_of::<OfpStatsReqFlowBody>(),
-                StatsReqBody::AggregateBody{ .. } => size_of::<Pattern>() + size_of::<OfpStatsReqAggregateBody>(),
+                StatsReqBody::FlowStatsBody{ .. } => size_of::<Pattern>() + size_of::<OfpStatsReqFlowBody>(),
                 StatsReqBody::TableBody => 0,
                 StatsReqBody::PortBody{ .. } => size_of::<OfpStatsReqPortBody>(),
                 StatsReqBody::QueueBody{ .. } => size_of::<OfpStatsReqQueueBody>(),
@@ -993,23 +984,13 @@ impl MessageType for StatsReq {
         let flags = bytes.read_u16::<BigEndian>().unwrap();
         let body = match req_type {
             StatsReqType::Desc => StatsReqBody::DescBody,
-            StatsReqType::Flow => {
+            StatsReqType::Flow | StatsReqType::Aggregate => {
                 let pattern = Pattern::parse(&mut bytes);
                 let table_id = bytes.read_u8().unwrap();
                 let pad = bytes.read_u8().unwrap();
                 let out_port = bytes.read_u16::<BigEndian>().unwrap();
 
-                StatsReqBody::FlowBody {
-                    pattern, table_id, pad, out_port
-                }
-            },
-            StatsReqType::Aggregate => {
-                let pattern = Pattern::parse(&mut bytes);
-                let table_id = bytes.read_u8().unwrap();
-                let pad = bytes.read_u8().unwrap();
-                let out_port = bytes.read_u16::<BigEndian>().unwrap();
-
-                StatsReqBody::AggregateBody {
+                StatsReqBody::FlowStatsBody {
                     pattern, table_id, pad, out_port
                 }
             },
@@ -1051,13 +1032,7 @@ impl MessageType for StatsReq {
         bytes.write_u16::<BigEndian>(sr.flags).unwrap();
         match sr.body {
             StatsReqBody::DescBody => {},
-            StatsReqBody::FlowBody{pattern, table_id, pad, out_port} => {
-                Pattern::marshal(pattern, bytes);
-                bytes.write_u8(table_id).unwrap();
-                bytes.write_u8(pad).unwrap();
-                bytes.write_u16::<BigEndian>(out_port).unwrap();
-            },
-            StatsReqBody::AggregateBody{pattern, table_id, pad, out_port} => {
+            StatsReqBody::FlowStatsBody{pattern, table_id, pad, out_port} => {
                 Pattern::marshal(pattern, bytes);
                 bytes.write_u8(table_id).unwrap();
                 bytes.write_u8(pad).unwrap();
