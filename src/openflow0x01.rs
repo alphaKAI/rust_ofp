@@ -2035,6 +2035,8 @@ pub mod message {
         PacketOut(PacketOut),
         BarrierRequest,
         BarrierReply,
+        StatsRequest(StatsReq),
+        StatsReply(StatsResp)
     }
 
     impl Message {
@@ -2054,6 +2056,8 @@ pub mod message {
                 Message::PacketOut(_) => MsgCode::PacketOut,
                 Message::BarrierRequest => MsgCode::BarrierReq,
                 Message::BarrierReply => MsgCode::BarrierResp,
+                Message::StatsRequest(_) => MsgCode::StatsReq,
+                Message::StatsReply(_) => MsgCode::StatsResp,
             }
         }
 
@@ -2071,6 +2075,8 @@ pub mod message {
                 Message::PortStatus(sts) => PortStatus::marshal(sts, bytes),
                 Message::PacketOut(po) => PacketOut::marshal(po, bytes),
                 Message::BarrierRequest | Message::BarrierReply => (),
+                Message::StatsRequest(sr) => StatsReq::marshal(sr, bytes),
+                Message::StatsReply(sr) => StatsResp::marshal(sr, bytes),
                 _ => (),
             }
         }
@@ -2092,6 +2098,8 @@ pub mod message {
                 Message::PortStatus(ref ps) => OfpHeader::size() + PortStatus::size_of(ps),
                 Message::PacketOut(ref po) => OfpHeader::size() + PacketOut::size_of(po),
                 Message::BarrierRequest | Message::BarrierReply => OfpHeader::size(),
+                Message::StatsRequest(ref sr) => OfpHeader::size() + StatsReq::size_of(sr),
+                Message::StatsReply(ref sr) => OfpHeader::size() + StatsResp::size_of(sr),
                 _ => 0,
             }
         }
@@ -2151,6 +2159,8 @@ pub mod message {
                 }
                 MsgCode::BarrierReq => Message::BarrierRequest,
                 MsgCode::BarrierResp => Message::BarrierReply,
+                MsgCode::StatsReq => Message::StatsRequest(StatsReq::parse(buf)),
+                MsgCode::StatsResp => Message::StatsReply(StatsResp::parse(buf)),
                 code => panic!("Unexpected message type {:?}", code),
             };
             (header.xid(), msg)

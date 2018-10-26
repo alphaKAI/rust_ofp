@@ -56,6 +56,8 @@ pub mod openflow0x01 {
                 Message::PacketIn(pkt) => {
                     Cntl::packet_in(cntl, self.switch_id.unwrap(), xid, pkt, stream)
                 }
+                Message::StatsRequest(_) |
+                Message::StatsReply(_) |
                 Message::FlowRemoved(_) |
                 Message::PortStatus(_) |
                 Message::PacketOut(_) |
