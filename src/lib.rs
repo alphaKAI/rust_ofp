@@ -4,6 +4,7 @@
 extern crate byteorder;
 
 pub mod learning_switch;
+pub mod stats_controller;
 
 mod bits;
 pub mod ofp_controller;

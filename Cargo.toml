@@ -26,5 +26,9 @@ path = "src/lib.rs"
 name = "rust_ofp_controller"
 path = "src/main.rs"
 
+[[bin]]
+name = "rust_ofp_stats_controller"
+path = "src/main_stats.rs"
+
 [dependencies]
 byteorder = "1.0.0"
