@@ -1,5 +1,7 @@
 use std::net::TcpStream;
+use rust_ofp::ofp_header::OfpHeader;
 use rust_ofp::ofp_message::OfpMessage;
+use std::io;
 
 /// OpenFlow Controller
 ///
@@ -12,6 +14,12 @@ pub trait OfpController {
     fn send_message(xid: u32, message: Self::Message, stream: &mut TcpStream);
     /// Perform handshake and begin loop reading incoming messages from client stream.
     fn handle_client_connected(stream: &mut TcpStream);
+}
+
+pub trait OfpMessageReader {
+    type Message: OfpMessage;
+
+    fn read_message(&mut self) -> io::Result<Option<(OfpHeader, Self::Message)>>;
 }
 
 pub mod openflow0x01 {
@@ -114,31 +122,55 @@ pub mod openflow0x01 {
             let mut cntl = Controller::new();
             Controller::send_message(0, Message::Hello, stream);
 
-            let mut buf = [0u8; 8];
             let mut thread_state = ThreadState::<Self> {
                 switch_id: None,
                 phantom: PhantomData,
             };
 
             loop {
-                let res = stream.read(&mut buf);
+                let res = stream.read_message();
                 match res {
-                    Ok(num_bytes) if num_bytes > 0 => {
-                        let header = OfpHeader::parse(buf);
-                        let message_len = header.length() - OfpHeader::size();
-                        let mut message_buf = vec![0; message_len];
-                        let _ = stream.read(&mut message_buf);
-                        let (xid, body) = Message::parse(&header, &message_buf);
-                        thread_state.process_message(&mut cntl, xid, body, stream)
-                    }
-                    Ok(_) => {
-                        println!("Connection closed reading header.");
-                        break;
+                    Ok(message) => {
+                        match message {
+                            Some((header, body)) => {
+                                thread_state.process_message(&mut cntl, header.xid(), body, stream)
+                            },
+                            None => {
+                                println!("Connection closed reading header.");
+                                break
+                            }
+                        }
                     }
                     Err(e) => {
                         println!("{}", e);
                         thread_state.switch_disconnected(&mut cntl)
                     }
+                }
+            }
+        }
+    }
+
+    impl OfpMessageReader for TcpStream {
+        type Message = Message;
+
+        fn read_message(&mut self) -> io::Result<Option<(OfpHeader, Self::Message)>> {
+            let mut buf = [0u8; 8];
+
+            let res = self.read(&mut buf);
+            match res {
+                Ok(num_bytes) if num_bytes > 0 => {
+                    let header = OfpHeader::parse(buf);
+                    let message_len = header.length() - OfpHeader::size();
+                    let mut message_buf = vec![0; message_len];
+                    let _ = self.read(&mut message_buf);
+                    let (_xid, body) = Message::parse(&header, &message_buf);
+                    Ok(Some((header, body)))
+                }
+                Ok(_) => {
+                    Ok(None)
+                }
+                Err(e) => {
+                    Err(e)
                 }
             }
         }
