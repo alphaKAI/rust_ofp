@@ -2159,8 +2159,14 @@ pub mod message {
                 }
                 MsgCode::BarrierReq => Message::BarrierRequest,
                 MsgCode::BarrierResp => Message::BarrierReply,
-                MsgCode::StatsReq => Message::StatsRequest(StatsReq::parse(buf)),
-                MsgCode::StatsResp => Message::StatsReply(StatsResp::parse(buf)),
+                MsgCode::StatsReq => {
+                    println!("Stats Req!");
+                    Message::StatsRequest(StatsReq::parse(buf))
+                },
+                MsgCode::StatsResp => {
+                    println!("Stats response!");
+                    Message::StatsReply(StatsResp::parse(buf))
+                },
                 code => panic!("Unexpected message type {:?}", code),
             };
             (header.xid(), msg)

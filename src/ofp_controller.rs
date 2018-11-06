@@ -22,7 +22,7 @@ pub mod openflow0x01 {
 
     use rust_ofp::ofp_header::OfpHeader;
     use rust_ofp::ofp_message::OfpMessage;
-    use rust_ofp::openflow0x01::{FlowMod, PacketIn, PacketOut, SwitchFeatures};
+    use rust_ofp::openflow0x01::{FlowMod, PacketIn, PacketOut, SwitchFeatures, StatsResp};
     use rust_ofp::openflow0x01::message::Message;
 
     #[derive(Debug)]
@@ -55,9 +55,11 @@ pub mod openflow0x01 {
                 Message::FlowMod(_) => (),
                 Message::PacketIn(pkt) => {
                     Cntl::packet_in(cntl, self.switch_id.unwrap(), xid, pkt, stream)
-                }
+                },
+                Message::StatsReply(reply) => {
+                    Cntl::stats(cntl, self.switch_id.unwrap(), xid, reply, stream)
+                },
                 Message::StatsRequest(_) |
-                Message::StatsReply(_) |
                 Message::FlowRemoved(_) |
                 Message::PortStatus(_) |
                 Message::PacketOut(_) |
@@ -86,6 +88,9 @@ pub mod openflow0x01 {
         /// Callback invoked when a packet `pkt` with transaction ID `xid` from
         /// switch `sw` arrives at the controller.
         fn packet_in(&mut self, sw: u64, xid: u32, pkt: PacketIn, stream: &mut TcpStream);
+
+        fn stats(&mut self, _: u64, _: u32, _: StatsResp, _: &mut TcpStream) {
+        }
 
         /// Send packet `pkt` with transaction ID `xid` to switch `sw` from the controller.
         fn send_packet_out(_: u64, xid: u32, pkt: PacketOut, stream: &mut TcpStream) {
