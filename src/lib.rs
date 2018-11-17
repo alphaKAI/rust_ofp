@@ -2,12 +2,15 @@
 #![crate_type = "lib"]
 
 extern crate byteorder;
+extern crate tokio;
+#[macro_use]
+extern crate futures;
+extern crate bytes;
 
 pub mod learning_switch;
 
 mod bits;
 pub mod ofp_device;
-pub mod ofp_device_controller;
 pub mod ofp_controller;
 pub mod ofp_header;
 pub mod ofp_message;

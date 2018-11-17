@@ -159,7 +159,7 @@ pub mod openflow0x01 {
             let res = self.read(&mut buf);
             match res {
                 Ok(num_bytes) if num_bytes > 0 => {
-                    let header = OfpHeader::parse(buf);
+                    let header = OfpHeader::parse(&buf);
                     let message_len = header.length() - OfpHeader::size();
                     let mut message_buf = vec![0; message_len];
                     let _ = self.read(&mut message_buf);

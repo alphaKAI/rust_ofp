@@ -28,3 +28,6 @@ path = "src/main.rs"
 
 [dependencies]
 byteorder = "1.0.0"
+tokio = "0.1"
+futures = "0.1"
+bytes = "0.4"

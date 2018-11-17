@@ -4,6 +4,8 @@ use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use rust_ofp::openflow0x01::MsgCode;
 
+pub const OFP_HEADER_LENGTH: usize = 8;
+
 /// OpenFlow Header
 ///
 /// The first fields of every OpenFlow message, no matter the protocol version.
@@ -42,8 +44,13 @@ impl OfpHeader {
     }
 
     /// Takes a message buffer (sized for an `OfpHeader`) and returns an `OfpHeader`.
-    pub fn parse(buf: [u8; 8]) -> Self {
-        let mut bytes = Cursor::new(buf.to_vec());
+    pub fn parse(buf: &[u8]) -> Self {
+        // TODO double check this doesn't do a memcpy
+        let mut bytes = Cursor::new(buf);
+        OfpHeader::parse_from_cursor(&mut bytes)
+    }
+
+    pub fn parse_from_cursor(bytes: &mut Cursor<&[u8]>) -> Self {
         OfpHeader {
             version: bytes.read_u8().unwrap(),
             typ: bytes.read_u8().unwrap(),

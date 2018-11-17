@@ -1,21 +1,34 @@
-use std::net::TcpListener;
+
+extern crate tokio;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::prelude::*;
 
 extern crate rust_ofp;
 use rust_ofp::learning_switch::LearningSwitch;
-use rust_ofp::ofp_controller::OfpController;
+use rust_ofp::ofp_device::openflow0x01::{DeviceController, DeviceControllerFuture};
+use std::sync::Arc;
+
+
+fn process(socket: TcpStream, controller: Arc<DeviceController>) {
+    controller.register_device(socket);
+}
 
 fn main() {
-    let listener = TcpListener::bind(("127.0.0.1", 6633)).unwrap();
-    for stream in listener.incoming() {
-        println!("{:?}", stream);
-        match stream {
-            Ok(mut stream) => {
-                std::thread::spawn(move || LearningSwitch::handle_client_connected(&mut stream));
-            }
-            Err(_) => {
-                // connection failed
-                panic!("Connection failed")
-            }
-        }
-    }
+    let controller = Arc::new(DeviceController::new());
+
+    let addr = "127.0.0.1:6633".parse().unwrap();
+    let listener = TcpListener::bind(&addr).unwrap();
+
+    let controller_future = DeviceControllerFuture::new(controller.clone());
+    let server = listener.incoming().for_each(move |socket| {
+            process(socket, controller.clone());
+            Ok(())
+        })
+        .map_err(|err| {
+            println!("accept error = {:?}", err);
+        });
+
+    tokio::spawn(controller_future);
+    println!("OF controller running on localhost:6633");
+    tokio::run(server);
 }

@@ -1,6 +1,4 @@
-use rust_ofp::ofp_header::OfpHeader;
 use rust_ofp::ofp_message::OfpMessage;
-use std::io;
 
 /// OpenFlow Device
 ///
@@ -16,63 +14,82 @@ pub trait OfpDevice {
     fn process_message(&self, xid: u32, message : Self::Message);
 }
 
-pub trait OfpMessageReader {
-    type Message: OfpMessage;
-
-    fn read_message(&mut self) -> io::Result<Option<(OfpHeader, Self::Message)>>;
-}
-
 pub mod openflow0x01 {
     use super::*;
-    use std::io::{Write, Read};
-    use std::net::TcpStream;
+
+    use tokio::io;
+    use tokio::net::TcpStream;
+    use tokio::prelude::*;
+
+    use futures::sync::mpsc;
+    use futures::sync::mpsc::{Receiver, Sender};
+
+    use bytes::BytesMut;
 
     use rust_ofp::ofp_header::OfpHeader;
     use rust_ofp::ofp_message::OfpMessage;
     use rust_ofp::openflow0x01::message::Message;
     use std::sync::Mutex;
     use std::sync::Arc;
+    use std::collections::HashMap;
 
     #[derive(Debug)]
     struct DeviceState {
-        switch_id: Option<u64>,
-        stream: TcpStream
+        switch_id: Option<DeviceId>,
     }
 
     impl DeviceState {
-        fn new(stream: TcpStream) -> DeviceState {
+        fn new() -> DeviceState {
             DeviceState {
                 switch_id: None,
-                stream
             }
         }
     }
 
     impl DeviceState {
+    }
+
+    struct MessageProcessor {
+        state: Arc<Mutex<DeviceState>>,
+        tx: Sender<(DeviceId, Message)>,
+        writer: OfpMessageWriter
+    }
+
+    impl MessageProcessor {
+        fn new(state: Arc<Mutex<DeviceState>>,
+               tx: Sender<(DeviceId, Message)>,
+               writer: OfpMessageWriter) -> MessageProcessor {
+            MessageProcessor {
+                state,
+                tx,
+                writer
+            }
+        }
+
         fn send_message(&mut self, xid: u32, message: Message) {
-            let raw_msg = Message::marshal(xid, message);
-            self.stream.write_all(&raw_msg).unwrap()
+            self.writer.send_message(xid, message);
         }
 
         fn process_message(&mut self, xid: u32, message: Message) {
-            match message {
+            match &message {
                 Message::Hello => self.send_message(xid, Message::FeaturesReq),
                 Message::Error(err) => println!("Error: {:?}", err),
-                Message::EchoRequest(bytes) => {
-                    self.send_message(xid, Message::EchoReply(bytes))
+                Message::EchoRequest(ref bytes) => {
+                    self.send_message(xid, Message::EchoReply(bytes.clone()))
                 }
                 Message::EchoReply(_) => (),
                 Message::FeaturesReq => (),
                 Message::FeaturesReply(feats) => {
-                    if self.switch_id.is_some() {
+                    let mut state = self.state.lock().unwrap();
+                    if state.switch_id.is_some() {
                         panic!("Switch connection already received.")
                     }
 
-                    self.switch_id = Some(feats.datapath_id);
+                    state.switch_id = Some(DeviceId(feats.datapath_id));
                     //self.switch_connected(cntl, feats.datapath_id, feats)
                 }
                 Message::FlowMod(_) => (),
-                Message::PacketIn(pkt) => {
+                Message::PacketIn(_pkt) => {
                     //self.packet_in(cntl, self.switch_id.unwrap(), xid, pkt)
                 }
                 Message::FlowRemoved(_) |
@@ -81,88 +98,300 @@ pub mod openflow0x01 {
                 Message::BarrierRequest |
                 Message::BarrierReply => (),
             }
+
+            // TODO do we need to lock every time only for reading? There might be a better way.
+            let state = self.state.lock().unwrap();
+            match state.switch_id {
+                Some(ref switch_id) => {
+                    self.tx.try_send((switch_id.clone(), message));
+                },
+                None => {
+                    // TODO log?
+                }
+            }
         }
     }
 
-    #[derive(Debug)]
     pub struct Device {
         state: Arc<Mutex<DeviceState>>,
-        stream: TcpStream
+        processor: Mutex<MessageProcessor>,
+
+        writer: Mutex<OfpMessageWriter>,
+
+        socket: TcpStream,
     }
 
     impl OfpDevice for Device {
         type Message = Message;
 
         fn send_message(&self, xid: u32, message: Message) {
-            let mut state = self.state.lock().unwrap();
-            state.send_message(xid, message)
+            let mut writer = self.writer.lock().unwrap();
+            writer.send_message(xid, message);
         }
 
         fn process_message(&self, xid: u32, message: Message) {
-            let mut state = self.state.lock().unwrap();
-            state.process_message(xid, message)
+            let mut processor = self.processor.lock().unwrap();
+            processor.process_message(xid, message);
         }
     }
 
     impl Device {
-        pub fn new(stream: TcpStream) -> Device {
+        pub fn new(stream: TcpStream, tx: Sender<(DeviceId, Message)>) -> Device {
+            let writer = OfpMessageWriter::new(stream.try_clone().unwrap());
+            let proc_writer = OfpMessageWriter::new(stream.try_clone().unwrap());
+            let state = Arc::new(Mutex::new(DeviceState::new()));
+            let processor = MessageProcessor::new(state.clone(), tx, proc_writer);
             Device {
-                stream: stream.try_clone().unwrap(),
-                state: Arc::new(Mutex::new(DeviceState::new(stream)))
+                state,
+                writer: Mutex::new(writer),
+                socket: stream,
+                processor: Mutex::new(processor)
             }
         }
 
-        pub fn start_reading_thread(&self) {
-            let mut stream = self.stream.try_clone().expect("Failed to clone TcpStream");
-            let state = self.state.clone();
-            std::thread::spawn(move || {
-                loop {
-                    let res = stream.read_message();
-                    match res {
-                        Ok(message) => {
-                            match message {
-                                Some((header, body)) => {
-                                    let mut state_mut = state.lock().unwrap();
-                                    state_mut.process_message(header.xid(), body);
-                                },
-                                None => {
-                                    println!("Connection closed reading header.");
-                                    break
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("{}", e);
-                        }
-                    }
-                }
-            });
+        fn create_reader(&self) -> OfpMessageReader {
+            OfpMessageReader::new(self.socket.try_clone().unwrap())
         }
     }
 
-    impl OfpMessageReader for TcpStream {
-        type Message = Message;
+    struct DeviceFuture {
+        device: Arc<Device>,
+        reader: OfpMessageReader,
+    }
 
-        fn read_message(&mut self) -> io::Result<Option<(OfpHeader, Self::Message)>> {
-            let mut buf = [0u8; 8];
+    impl DeviceFuture {
+        fn new(device: Arc<Device>) -> DeviceFuture {
+            DeviceFuture {
+                reader: device.create_reader(),
+                device,
+            }
+        }
+    }
 
-            let res = self.read(&mut buf);
-            match res {
-                Ok(num_bytes) if num_bytes > 0 => {
-                    let header = OfpHeader::parse(buf);
-                    let message_len = header.length() - OfpHeader::size();
-                    let mut message_buf = vec![0; message_len];
-                    let _ = self.read(&mut message_buf);
-                    let (_xid, body) = Message::parse(&header, &message_buf);
-                    Ok(Some((header, body)))
-                }
-                Ok(_) => {
-                    Ok(None)
-                }
-                Err(e) => {
-                    Err(e)
+    // TODO Optimize this to use the MessageProcessor directly
+    impl Future for DeviceFuture {
+        type Item = ();
+        type Error = ();
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            const MESSAGES_PER_TICK: usize = 10;
+            for _ in 0..MESSAGES_PER_TICK {
+                match self.reader.poll().unwrap() {
+                    Async::Ready(Some((header, message))) => {
+                        self.device.process_message(header.xid(), message);
+                    },
+                    _ => {
+                        break;
+                    }
                 }
             }
+            Ok(Async::NotReady)
+        }
+    }
+
+    #[derive(Debug)]
+    struct OfpMessageReader {
+        socket: TcpStream,
+        rd: BytesMut
+    }
+
+    impl OfpMessageReader {
+        pub fn new(socket: TcpStream) -> Self {
+            OfpMessageReader {
+                socket,
+                rd: BytesMut::new(),
+            }
+        }
+
+        fn have_full_message(&self) -> bool {
+            if self.have_header() {
+                return self.rd.len() >= self.get_header_length();
+            }
+            false
+        }
+
+        fn have_header(&self) -> bool {
+            self.rd.len() >= OfpHeader::size()
+        }
+
+        fn read_message_data(&mut self) -> Poll<(), io::Error> {
+            loop {
+                if self.have_full_message() {
+                    return Ok(Async::Ready(()));
+                } else if self.have_header() {
+                    self.read_body()?;
+                } else {
+                    self.read_header()?;
+                }
+            }
+        }
+
+        fn read_header(&mut self) -> Poll<(), io::Error> {
+            self.rd.reserve(OfpHeader::size());
+
+            // Read data into the buffer.
+            let _n = try_ready!(self.socket.read_buf(&mut self.rd));
+            if self.have_header() {
+                Ok(Async::Ready(()))
+            } else {
+                Ok(Async::NotReady)
+            }
+        }
+
+        fn read_body(&mut self) -> Poll<(), io::Error> {
+            assert!(self.have_header());
+            let length = self.get_header_length();
+            self.read_data(length)
+        }
+
+        fn read_data(&mut self, length: usize) -> Poll<(), io::Error> {
+            self.rd.reserve(length);
+            let _n = try_ready!(self.socket.read_buf(&mut self.rd));
+            if self.have_full_message() {
+                Ok(Async::Ready(()))
+            } else {
+                Ok(Async::NotReady)
+            }
+        }
+
+        fn get_header_length(&self) -> usize {
+            let len_1 = *self.rd.get(2).unwrap() as usize;
+            let len_2 = *self.rd.get(3).unwrap() as usize;
+
+            return (len_1 << 8) + len_2
+        }
+
+        fn parse_message(&mut self) -> io::Result<(OfpHeader, Message)> {
+            let body_length = self.get_header_length() - OfpHeader::size();
+            let header_data = self.rd.split_to(OfpHeader::size());
+            let data = self.rd.split_to(body_length);
+
+            let header = OfpHeader::parse(&header_data);
+            let (_xid, body) = Message::parse(&header, &data);
+            Ok((header, body))
+        }
+    }
+
+    impl Stream for OfpMessageReader {
+        type Item = (OfpHeader, Message);
+        type Error = io::Error;
+
+        fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+            let sock_closed = self.read_message_data()?.is_ready();
+
+            if self.have_full_message() {
+                let message = self.parse_message()?;
+                Ok(Async::Ready(Some(message)))
+            } else if sock_closed {
+                Ok(Async::Ready(None))
+            } else{
+                Ok(Async::NotReady)
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct OfpMessageWriter {
+        socket: TcpStream
+    }
+
+    impl OfpMessageWriter {
+        fn new(socket: TcpStream) -> OfpMessageWriter {
+            OfpMessageWriter {
+                socket
+            }
+        }
+
+        fn send_message(&mut self, xid: u32, message: Message) {
+            let raw_msg = Message::marshal(xid, message);
+            self.socket.write_all(&raw_msg).unwrap()
+        }
+    }
+
+    #[derive(Debug, Clone, Hash, Eq, PartialEq)]
+    pub struct DeviceId(u64);
+
+    struct Devices {
+        unknown_devices: Vec<Arc<Device>>,
+        devices: HashMap<DeviceId, Arc<Device>>
+    }
+
+    impl Devices {
+        fn new() -> Devices {
+            Devices {
+                unknown_devices: Vec::new(),
+                devices: HashMap::new()
+            }
+        }
+
+        fn add_device(&mut self, device: Arc<Device>) {
+            self.unknown_devices.push(device);
+        }
+    }
+
+    pub struct DeviceController {
+        devices: Mutex<Devices>,
+        message_rx: Mutex<Receiver<(DeviceId, Message)>>,
+        message_tx: Sender<(DeviceId, Message)>
+    }
+
+    const MESSAGES_CHANNEL_BUFFER: usize = 1000;
+    impl DeviceController {
+        pub fn new() -> DeviceController {
+            let (tx, rx) = mpsc::channel(MESSAGES_CHANNEL_BUFFER);
+            DeviceController {
+                devices: Mutex::new(Devices::new()),
+                message_rx: Mutex::new(rx),
+                message_tx: tx
+            }
+        }
+
+        fn create_device(&self, stream: TcpStream) -> Arc<Device> {
+            let mut devices = self.devices.lock().unwrap();
+            let device = Arc::new(Device::new(stream, self.message_tx.clone()));
+            devices.add_device(device.clone());
+            device
+        }
+
+        pub fn register_device(&self, stream: TcpStream) {
+            let device = self.create_device(stream);
+            self.start_reading_messages(device);
+        }
+
+        fn start_reading_messages(&self, device: Arc<Device>) {
+            tokio::spawn(DeviceFuture::new(device));
+        }
+    }
+
+    pub struct DeviceControllerFuture {
+        controller: Arc<DeviceController>
+    }
+
+    impl DeviceControllerFuture {
+        pub fn new(controller: Arc<DeviceController>) -> DeviceControllerFuture {
+            DeviceControllerFuture {
+                controller
+            }
+        }
+    }
+
+    impl Future for DeviceControllerFuture {
+        type Item = ();
+        type Error = ();
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            const MESSAGES_PER_TICK: usize = 10;
+            let mut rx = self.controller.message_rx.lock().unwrap();
+            for _ in 0..MESSAGES_PER_TICK {
+                match rx.poll().unwrap() {
+                    Async::Ready(Some((device_id, message))) => {
+                    },
+                    _ => {
+                        break;
+                    }
+                }
+            }
+            Ok(Async::NotReady)
         }
     }
 }
