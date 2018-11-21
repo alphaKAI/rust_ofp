@@ -1,8 +1,12 @@
 use std::collections::HashMap;
-use std::net::TcpStream;
-use rust_ofp::ofp_controller::openflow0x01::OF0x01Controller;
 use rust_ofp::openflow0x01::{Action, PacketIn, PacketOut, Pattern, PseudoPort, SwitchFeatures};
 use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
+use ofp_device::openflow0x01::{DeviceControllerApp, DeviceControllerEvent};
+use ofp_device::openflow0x01::DeviceId;
+use std::sync::Arc;
+use openflow0x01::message::Message;
+use openflow0x01::FlowMod;
+use ofp_device::openflow0x01::DeviceController;
 
 /// Implements L2 learning switch functionality. Switches forward packets to the
 /// learning controller, which will examine the packet and learn the source-port
@@ -22,6 +26,7 @@ use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
 ///    the destination is unknown, it floods the packet out all ports.
 pub struct LearningSwitch {
     known_hosts: HashMap<u64, u16>,
+    controller: Arc<DeviceController>
 }
 
 impl LearningSwitch {
@@ -30,7 +35,7 @@ impl LearningSwitch {
         self.known_hosts.insert(pk.dl_src, pkt.port);
     }
 
-    fn routing_packet_in(&mut self, sw: u64, pkt: PacketIn, stream: &mut TcpStream) {
+    fn routing_packet_in(&mut self, sw: &DeviceId, pkt: &PacketIn) {
         let pk = parse_payload(&pkt.input_payload);
         let pkt_dst = pk.dl_dst;
         let pkt_src = pk.dl_src;
@@ -46,41 +51,70 @@ impl LearningSwitch {
                 dst_src_match.dl_src = Some(pkt_dst);
                 println!("Installing rule for host {:?} to {:?}.", pkt_src, pkt_dst);
                 let actions = vec![Action::Output(PseudoPort::PhysicalPort(*p))];
-                Self::send_flow_mod(sw, 0, add_flow(10, src_dst_match, actions), stream);
+                self.send_flow_mod(sw, 0, add_flow(10, src_dst_match, actions));
                 println!("Installing rule for host {:?} to {:?}.", pkt_dst, pkt_src);
                 let actions = vec![Action::Output(PseudoPort::PhysicalPort(src_port))];
-                Self::send_flow_mod(sw, 0, add_flow(10, dst_src_match, actions), stream);
+                self.send_flow_mod(sw, 0, add_flow(10, dst_src_match, actions));
                 let pkt_out = PacketOut {
-                    output_payload: pkt.input_payload,
+                    output_payload: pkt.clone_payload(),
                     port_id: None,
                     apply_actions: vec![Action::Output(PseudoPort::PhysicalPort(*p))],
                 };
-                Self::send_packet_out(sw, 0, pkt_out, stream)
+                self.send_packet_out(sw, 0, pkt_out)
             }
             None => {
                 println!("Flooding to {:?}", pkt_dst);
                 let pkt_out = PacketOut {
-                    output_payload: pkt.input_payload,
+                    output_payload: pkt.clone_payload(),
                     port_id: None,
                     apply_actions: vec![Action::Output(PseudoPort::AllPorts)],
                 };
-                Self::send_packet_out(sw, 0, pkt_out, stream)
+                self.send_packet_out(sw, 0, pkt_out)
             }
+        }
+    }
+
+    pub fn new(controller: Arc<DeviceController>) -> LearningSwitch {
+        LearningSwitch { known_hosts: HashMap::new(), controller }
+    }
+
+    fn switch_connected(&mut self, _: u64, _: SwitchFeatures) {}
+
+    fn switch_disconnected(&mut self, _: u64) {}
+
+    fn packet_in(&mut self, sw: &DeviceId, pkt: &PacketIn) {
+        self.learning_packet_in(&pkt);
+        self.routing_packet_in(sw, pkt);
+    }
+
+    fn send_flow_mod(&self, device: &DeviceId, xid: u32, message: FlowMod) {
+        self.controller.send_message(device, xid, Message::FlowMod(message));
+    }
+
+    fn send_packet_out(&self, device: &DeviceId, xid: u32, pkt: PacketOut) {
+        self.controller.send_message(device, xid, Message::PacketOut(pkt));
+    }
+}
+
+pub struct LearningSwitchApp {
+    switch: LearningSwitch
+}
+
+impl LearningSwitchApp {
+    pub fn new(controller: Arc<DeviceController>) -> LearningSwitchApp {
+        LearningSwitchApp {
+            switch: LearningSwitch::new(controller)
         }
     }
 }
 
-impl OF0x01Controller for LearningSwitch {
-    fn new() -> LearningSwitch {
-        LearningSwitch { known_hosts: HashMap::new() }
-    }
-
-    fn switch_connected(&mut self, _: u64, _: SwitchFeatures, _: &mut TcpStream) {}
-
-    fn switch_disconnected(&mut self, _: u64) {}
-
-    fn packet_in(&mut self, sw: u64, _: u32, pkt: PacketIn, stream: &mut TcpStream) {
-        self.learning_packet_in(&pkt);
-        self.routing_packet_in(sw, pkt, stream);
+impl DeviceControllerApp for LearningSwitchApp {
+    fn event(&mut self, event: Arc<DeviceControllerEvent>) {
+        match *event {
+            DeviceControllerEvent::PacketIn(ref device_id, ref packet) => {
+                self.switch.packet_in(device_id, packet);
+            },
+            _ => {}
+        }
     }
 }

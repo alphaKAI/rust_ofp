@@ -896,7 +896,7 @@ impl MessageType for FlowMod {
 }
 
 /// The data associated with a packet received by the controller.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Payload {
     Buffered(u32, Vec<u8>),
     NotBuffered(Vec<u8>),
@@ -938,6 +938,12 @@ pub struct PacketIn {
 
 #[repr(packed)]
 struct OfpPacketIn(i32, u16, u16, u8, u8);
+
+impl PacketIn {
+    pub fn clone_payload(&self) -> Payload {
+        self.input_payload.clone()
+    }
+}
 
 impl MessageType for PacketIn {
     fn size_of(pi: &PacketIn) -> usize {

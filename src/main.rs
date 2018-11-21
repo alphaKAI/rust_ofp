@@ -4,7 +4,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 
 extern crate rust_ofp;
-use rust_ofp::learning_switch::LearningSwitch;
+use rust_ofp::learning_switch::LearningSwitchApp;
 use rust_ofp::ofp_device::openflow0x01::{DeviceController, DeviceControllerFuture};
 use std::sync::Arc;
 
@@ -15,6 +15,7 @@ fn process(socket: TcpStream, controller: Arc<DeviceController>) {
 
 fn main() {
     let controller = Arc::new(DeviceController::new());
+    controller.register_app(Box::new(LearningSwitchApp::new(controller.clone())));
 
     let addr = "127.0.0.1:6633".parse().unwrap();
     let listener = TcpListener::bind(&addr).unwrap();

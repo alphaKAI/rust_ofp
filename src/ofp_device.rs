@@ -45,9 +45,13 @@ pub mod openflow0x01 {
                 switch_id: None,
             }
         }
-    }
 
-    impl DeviceState {
+        pub fn has_device_id(&self, device_id: &DeviceId) -> bool {
+            match &self.switch_id {
+                Some(ref id) => id == device_id,
+                None => false
+            }
+        }
     }
 
     struct MessageProcessor {
@@ -152,6 +156,11 @@ pub mod openflow0x01 {
 
         fn create_reader(&self) -> OfpMessageReader {
             OfpMessageReader::new(self.socket.try_clone().unwrap())
+        }
+
+        pub fn has_device_id(&self, device_id: &DeviceId) -> bool {
+            let state = self.state.lock().unwrap();
+            state.has_device_id(device_id)
         }
     }
 
@@ -328,10 +337,19 @@ pub mod openflow0x01 {
         fn add_device(&mut self, device: Arc<Device>) {
             self.unknown_devices.push(device);
         }
+
+        fn send_message(&self, device_id: &DeviceId, xid: u32, message: Message) {
+            for device in &self.unknown_devices {
+                if device.has_device_id(device_id) {
+                    device.send_message(xid, message);
+                    break;
+                }
+            }
+        }
     }
 
-    trait DeviceControllerApp {
-        fn event(&self, event: Arc<DeviceControllerEvent>);
+    pub trait DeviceControllerApp {
+        fn event(&mut self, event: Arc<DeviceControllerEvent>);
     }
 
     struct DeviceControllerApps {
@@ -345,13 +363,17 @@ pub mod openflow0x01 {
             }
         }
 
-        fn post(&self, event: DeviceControllerEvent) {
+        fn post(&mut self, event: DeviceControllerEvent) {
             let event = Arc::new(event);
 
-            for app in &self.apps {
+            for app in &mut self.apps {
                 // TODO Revisit this. Should we call it on a loop or spawn tasks?
                 app.event(event.clone());
             }
+        }
+
+        pub fn register_app(&mut self, app: Box<DeviceControllerApp+ Sync + Send>) {
+            self.apps.push(app);
         }
     }
 
@@ -360,7 +382,7 @@ pub mod openflow0x01 {
         message_rx: Mutex<Receiver<(DeviceId, Message)>>,
         message_tx: Sender<(DeviceId, Message)>,
 
-        apps: DeviceControllerApps
+        apps: Mutex<DeviceControllerApps>
     }
 
     const MESSAGES_CHANNEL_BUFFER: usize = 1000;
@@ -371,7 +393,7 @@ pub mod openflow0x01 {
                 devices: Mutex::new(Devices::new()),
                 message_rx: Mutex::new(rx),
                 message_tx: tx,
-                apps: DeviceControllerApps::new()
+                apps: Mutex::new(DeviceControllerApps::new())
             }
         }
 
@@ -387,16 +409,27 @@ pub mod openflow0x01 {
             self.start_reading_messages(device);
         }
 
+        pub fn register_app(&self, app: Box<DeviceControllerApp + Send + Sync>) {
+            let mut apps = self.apps.lock().unwrap();
+            apps.register_app(app);
+        }
+
         fn start_reading_messages(&self, device: Arc<Device>) {
             tokio::spawn(DeviceFuture::new(device));
         }
 
         fn post(&self, event: DeviceControllerEvent) {
-            self.apps.post(event);
+            let mut apps = self.apps.lock().unwrap();
+            apps.post(event);
+        }
+
+        pub fn send_message(&self, device_id: &DeviceId, xid: u32, message: Message) {
+            let mut devices = self.devices.lock().unwrap();
+            devices.send_message(device_id, xid, message);
         }
     }
 
-    enum DeviceControllerEvent {
+    pub enum DeviceControllerEvent {
         SwitchConnected(DeviceId),
         PacketIn(DeviceId, PacketIn)
     }
