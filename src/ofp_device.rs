@@ -32,6 +32,7 @@ pub mod openflow0x01 {
     use std::sync::Mutex;
     use std::sync::Arc;
     use std::collections::HashMap;
+    use openflow0x01::PacketIn;
 
     #[derive(Debug)]
     struct DeviceState {
@@ -329,10 +330,37 @@ pub mod openflow0x01 {
         }
     }
 
+    trait DeviceControllerApp {
+        fn event(&self, event: Arc<DeviceControllerEvent>);
+    }
+
+    struct DeviceControllerApps {
+        apps: Vec<Box<DeviceControllerApp + Sync + Send>>
+    }
+
+    impl DeviceControllerApps {
+        pub fn new() -> DeviceControllerApps {
+            DeviceControllerApps {
+                apps: Vec::new()
+            }
+        }
+
+        fn post(&self, event: DeviceControllerEvent) {
+            let event = Arc::new(event);
+
+            for app in &self.apps {
+                // TODO Revisit this. Should we call it on a loop or spawn tasks?
+                app.event(event.clone());
+            }
+        }
+    }
+
     pub struct DeviceController {
         devices: Mutex<Devices>,
         message_rx: Mutex<Receiver<(DeviceId, Message)>>,
-        message_tx: Sender<(DeviceId, Message)>
+        message_tx: Sender<(DeviceId, Message)>,
+
+        apps: DeviceControllerApps
     }
 
     const MESSAGES_CHANNEL_BUFFER: usize = 1000;
@@ -342,7 +370,8 @@ pub mod openflow0x01 {
             DeviceController {
                 devices: Mutex::new(Devices::new()),
                 message_rx: Mutex::new(rx),
-                message_tx: tx
+                message_tx: tx,
+                apps: DeviceControllerApps::new()
             }
         }
 
@@ -361,6 +390,15 @@ pub mod openflow0x01 {
         fn start_reading_messages(&self, device: Arc<Device>) {
             tokio::spawn(DeviceFuture::new(device));
         }
+
+        fn post(&self, event: DeviceControllerEvent) {
+            self.apps.post(event);
+        }
+    }
+
+    enum DeviceControllerEvent {
+        SwitchConnected(DeviceId),
+        PacketIn(DeviceId, PacketIn)
     }
 
     pub struct DeviceControllerFuture {
@@ -371,6 +409,18 @@ pub mod openflow0x01 {
         pub fn new(controller: Arc<DeviceController>) -> DeviceControllerFuture {
             DeviceControllerFuture {
                 controller
+            }
+        }
+
+        fn handle_message(&self, device_id: DeviceId, message: Message) {
+            match message {
+                Message::FeaturesReply(_feats) => {
+                    self.controller.post(DeviceControllerEvent::SwitchConnected(device_id));
+                },
+                Message::PacketIn(pkt) => {
+                    self.controller.post(DeviceControllerEvent::PacketIn(device_id, pkt));
+                }
+                _ => (),
             }
         }
     }
@@ -385,6 +435,7 @@ pub mod openflow0x01 {
             for _ in 0..MESSAGES_PER_TICK {
                 match rx.poll().unwrap() {
                     Async::Ready(Some((device_id, message))) => {
+                        self.handle_message(device_id, message);
                     },
                     _ => {
                         break;
