@@ -29,7 +29,12 @@ fn main() {
             println!("accept error = {:?}", err);
         });
 
-    tokio::spawn(controller_future);
+    let lazy_future = future::lazy(|| {
+        tokio::spawn(controller_future);
+        tokio::spawn(server);
+        Ok(())
+    });
+
     println!("OF controller running on localhost:6633");
-    tokio::run(server);
+    tokio::run(lazy_future);
 }
