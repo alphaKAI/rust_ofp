@@ -74,7 +74,7 @@ pub mod openflow0x01 {
         }
 
         fn send_message(&mut self, xid: u32, message: Message) {
-            self.writer.try_send((xid, message));
+            self.writer.try_send((xid, message)).unwrap();
         }
 
         fn process_message(&mut self, xid: u32, message: Message) {
@@ -113,7 +113,7 @@ pub mod openflow0x01 {
             let state = self.state.lock().unwrap();
             match state.switch_id {
                 Some(ref switch_id) => {
-                    self.tx.try_send((switch_id.clone(), message));
+                    self.tx.try_send((switch_id.clone(), message)).unwrap();
                 },
                 None => {
                     // TODO log?
@@ -136,7 +136,7 @@ pub mod openflow0x01 {
 
         fn send_message(&self, xid: u32, message: Message) {
             let mut writer = self.writer.lock().unwrap();
-            writer.try_send((xid, message));
+            writer.try_send((xid, message)).unwrap(); // TODO handle errors
         }
 
         fn process_message(&self, xid: u32, message: Message) {
@@ -206,7 +206,7 @@ pub mod openflow0x01 {
                         return Ok(Async::Ready(()))
                     },
                     Err(e) => {
-                        panic!("Error on reader"); // TODO
+                        panic!("Error on reader: {}", e); // TODO
                     }
                 }
             }
@@ -304,8 +304,7 @@ pub mod openflow0x01 {
         type Error = io::Error;
 
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            let result = try_ready!(self.read_message_data());
-
+            try_ready!(self.read_message_data());
             if self.have_full_message() {
                 let message = self.parse_message()?;
                 Ok(Async::Ready(Some(message)))
@@ -346,7 +345,7 @@ pub mod openflow0x01 {
                             }
                             Ok(Async::Ready(()))
                         },
-                        Err(e) => {
+                        Err(_e) => {
                             panic!("Sender: Error writing to socket"); // TODO
                         }
                     }
@@ -372,7 +371,7 @@ pub mod openflow0x01 {
                     Some((xid, message)) => {
                         let raw_msg = Message::marshal(xid, message);
                         self.message.replace(raw_msg);
-                        self.send_current_message();
+                        try_ready!(self.send_current_message());
                     },
                     None => {
                         return Ok(Async::Ready(()));
@@ -490,7 +489,7 @@ pub mod openflow0x01 {
         }
 
         pub fn send_message(&self, device_id: &DeviceId, xid: u32, message: Message) {
-            let mut devices = self.devices.lock().unwrap();
+            let devices = self.devices.lock().unwrap();
             devices.send_message(device_id, xid, message);
         }
     }
