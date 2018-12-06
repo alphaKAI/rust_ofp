@@ -1,5 +1,7 @@
 use rust_ofp::ofp_message::OfpMessage;
 
+const WRITING_CHANNEL_SIZE: usize = 1000;
+
 /// OpenFlow Device
 ///
 /// Version-agnostic API for communicating with an OpenFlow Device.
@@ -57,13 +59,13 @@ pub mod openflow0x01 {
     struct MessageProcessor {
         state: Arc<Mutex<DeviceState>>,
         tx: Sender<(DeviceId, Message)>,
-        writer: OfpMessageWriter
+        writer: Sender<(u32, Message)> // TODO define a xid type
     }
 
     impl MessageProcessor {
         fn new(state: Arc<Mutex<DeviceState>>,
                tx: Sender<(DeviceId, Message)>,
-               writer: OfpMessageWriter) -> MessageProcessor {
+               writer: Sender<(u32, Message)>) -> MessageProcessor {
             MessageProcessor {
                 state,
                 tx,
@@ -72,12 +74,15 @@ pub mod openflow0x01 {
         }
 
         fn send_message(&mut self, xid: u32, message: Message) {
-            self.writer.send_message(xid, message);
+            self.writer.try_send((xid, message));
         }
 
         fn process_message(&mut self, xid: u32, message: Message) {
             match &message {
-                Message::Hello => self.send_message(xid, Message::FeaturesReq),
+                Message::Hello => {
+                    info!("Received Hello message, sending a Features Req");
+                    self.send_message(xid, Message::FeaturesReq);
+                },
                 Message::Error(err) => println!("Error: {:?}", err),
                 Message::EchoRequest(ref bytes) => {
                     self.send_message(xid, Message::EchoReply(bytes.clone()))
@@ -121,7 +126,7 @@ pub mod openflow0x01 {
         state: Arc<Mutex<DeviceState>>,
         processor: Mutex<MessageProcessor>,
 
-        writer: Mutex<OfpMessageWriter>,
+        writer: Mutex<Sender<(u32, Message)>>,
 
         socket: TcpStream,
     }
@@ -131,7 +136,7 @@ pub mod openflow0x01 {
 
         fn send_message(&self, xid: u32, message: Message) {
             let mut writer = self.writer.lock().unwrap();
-            writer.send_message(xid, message);
+            writer.try_send((xid, message));
         }
 
         fn process_message(&self, xid: u32, message: Message) {
@@ -142,13 +147,16 @@ pub mod openflow0x01 {
 
     impl Device {
         pub fn new(stream: TcpStream, tx: Sender<(DeviceId, Message)>) -> Device {
-            let writer = OfpMessageWriter::new(stream.try_clone().unwrap());
-            let proc_writer = OfpMessageWriter::new(stream.try_clone().unwrap());
+            let (writer_tx, writer_rx) = mpsc::channel(WRITING_CHANNEL_SIZE);
+            let writer = OfpMessageWriter::new(stream.try_clone().unwrap(), writer_rx);
             let state = Arc::new(Mutex::new(DeviceState::new()));
-            let processor = MessageProcessor::new(state.clone(), tx, proc_writer);
+            let processor = MessageProcessor::new(state.clone(), tx, writer_tx.clone());
+
+            tokio::spawn(writer);
+
             Device {
                 state,
-                writer: Mutex::new(writer),
+                writer: Mutex::new(writer_tx),
                 socket: stream,
                 processor: Mutex::new(processor)
             }
@@ -186,15 +194,24 @@ pub mod openflow0x01 {
         fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
             const MESSAGES_PER_TICK: usize = 10;
             for _ in 0..MESSAGES_PER_TICK {
-                match self.reader.poll().unwrap() {
-                    Async::Ready(Some((header, message))) => {
+                let res = self.reader.poll();
+                match res {
+                    Ok(Async::Ready(Some((header, message)))) => {
                         self.device.process_message(header.xid(), message);
                     },
-                    _ => {
-                        break;
+                    Ok(Async::NotReady) => {
+                        return Ok(Async::NotReady)
+                    },
+                    Ok(Async::Ready(None)) => {
+                        return Ok(Async::Ready(()))
+                    },
+                    Err(e) => {
+                        panic!("Error on reader"); // TODO
                     }
                 }
             }
+
+            task::current().notify();
             Ok(Async::NotReady)
         }
     }
@@ -229,9 +246,9 @@ pub mod openflow0x01 {
                 if self.have_full_message() {
                     return Ok(Async::Ready(()));
                 } else if self.have_header() {
-                    self.read_body()?;
+                    try_ready!(self.read_body());
                 } else {
-                    self.read_header()?;
+                    try_ready!(self.read_header());
                 }
             }
         }
@@ -240,7 +257,7 @@ pub mod openflow0x01 {
             self.rd.reserve(OfpHeader::size());
 
             // Read data into the buffer.
-            let _n = try_ready!(self.socket.read_buf(&mut self.rd));
+            let n = try_ready!(self.socket.read_buf(&mut self.rd));
             if self.have_header() {
                 Ok(Async::Ready(()))
             } else {
@@ -287,34 +304,82 @@ pub mod openflow0x01 {
         type Error = io::Error;
 
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            let sock_closed = self.read_message_data()?.is_ready();
+            let result = try_ready!(self.read_message_data());
 
             if self.have_full_message() {
                 let message = self.parse_message()?;
                 Ok(Async::Ready(Some(message)))
-            } else if sock_closed {
+            } else {
                 Ok(Async::Ready(None))
-            } else{
-                Ok(Async::NotReady)
             }
         }
     }
 
-    #[derive(Debug)]
     struct OfpMessageWriter {
-        socket: TcpStream
+        socket: TcpStream,
+        rx: Receiver<(u32, Message)>,
+        message: Option<Vec<u8>>
     }
 
     impl OfpMessageWriter {
-        fn new(socket: TcpStream) -> OfpMessageWriter {
+        fn new(socket: TcpStream, rx: Receiver<(u32, Message)>) -> OfpMessageWriter {
             OfpMessageWriter {
-                socket
+                socket,
+                rx,
+                message: None
             }
         }
 
-        fn send_message(&mut self, xid: u32, message: Message) {
-            let raw_msg = Message::marshal(xid, message);
-            self.socket.write_all(&raw_msg).unwrap()
+        fn send_current_message(&mut self) -> Poll<(), ()> {
+            let message = self.message.take();
+            match message {
+                Some(bytes) => {
+                    let write_result = self.socket.poll_write(&bytes);
+                    match write_result {
+                        Ok(Async::NotReady) => {
+                            self.message.replace(bytes);
+                            Ok(Async::NotReady)
+                        },
+                        Ok(Async::Ready(written)) => {
+                            if written != bytes.len() {
+                                panic!("Sender: Could not write all data"); // TODO
+                            }
+                            Ok(Async::Ready(()))
+                        },
+                        Err(e) => {
+                            panic!("Sender: Error writing to socket"); // TODO
+                        }
+                    }
+                },
+                None => {
+                    Ok(Async::Ready(()))
+                }
+            }
+        }
+    }
+
+    impl Future for OfpMessageWriter {
+        type Item = ();
+        type Error = ();
+
+        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+            try_ready!(self.send_current_message());
+
+            const MESSAGES_PER_TICK: usize = 10;
+            for _ in 0..MESSAGES_PER_TICK {
+                let mut res = try_ready!(self.rx.poll());
+                match res {
+                    Some((xid, message)) => {
+                        let raw_msg = Message::marshal(xid, message);
+                        self.message.replace(raw_msg);
+                        self.send_current_message();
+                    },
+                    None => {
+                        return Ok(Async::Ready(()));
+                    }
+                }
+            }
+            Ok(Async::NotReady)
         }
     }
 

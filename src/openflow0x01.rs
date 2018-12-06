@@ -1519,37 +1519,37 @@ pub mod message {
             let typ = header.type_code();
             let msg = match typ {
                 MsgCode::Hello => {
-                    println!("Hello!");
+                    debug!("Message received: Hello!");
                     Message::Hello
                 }
                 MsgCode::Error => {
-                    println!("Error");
+                    debug!("Message received: Error");
                     Message::Error(Error::parse(buf))
                 }
                 MsgCode::EchoReq => Message::EchoRequest(buf.to_vec()),
                 MsgCode::EchoResp => Message::EchoReply(buf.to_vec()),
                 MsgCode::FeaturesResp => {
-                    println!("FeaturesResp");
+                    debug!("Message received: FeaturesResp");
                     Message::FeaturesReply(SwitchFeatures::parse(buf))
                 }
                 MsgCode::FlowMod => {
-                    println!("FlowMod");
+                    debug!("Message received: FlowMod");
                     Message::FlowMod(FlowMod::parse(buf))
                 }
                 MsgCode::PacketIn => {
-                    println!("PacketIn");
+                    debug!("Message received: PacketIn");
                     Message::PacketIn(PacketIn::parse(buf))
                 }
                 MsgCode::FlowRemoved => {
-                    println!("FlowRemoved");
+                    debug!("Message received: FlowRemoved");
                     Message::FlowRemoved(FlowRemoved::parse(buf))
                 }
                 MsgCode::PortStatus => {
-                    println!("PortStatus");
+                    debug!("Message received: PortStatus");
                     Message::PortStatus(PortStatus::parse(buf))
                 }
                 MsgCode::PacketOut => {
-                    println!("PacketOut");
+                    debug!("Message received: PacketOut");
                     Message::PacketOut(PacketOut::parse(buf))
                 }
                 MsgCode::BarrierReq => Message::BarrierRequest,

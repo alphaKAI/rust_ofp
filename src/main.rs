@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 
 fn process(socket: TcpStream, controller: Arc<DeviceController>) {
+    info!("New device connected: {:?}", socket);
     controller.register_device(socket);
 }
 
