@@ -7,6 +7,10 @@ extern crate tokio;
 extern crate futures;
 extern crate bytes;
 
+#[macro_use]
+extern crate log;
+extern crate log4rs;
+
 pub mod learning_switch;
 
 mod bits;

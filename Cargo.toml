@@ -27,6 +27,9 @@ name = "rust_ofp_controller"
 path = "src/main.rs"
 
 [dependencies]
+log = "0.4"
+log4rs = "0.8.0"
+log-panics = "2.0.0"
 byteorder = "1.0.0"
 tokio = "0.1"
 futures = "0.1"

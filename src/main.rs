@@ -1,4 +1,10 @@
 
+#[macro_use]
+extern crate log;
+extern crate log4rs;
+
+extern crate log_panics;
+
 extern crate tokio;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
@@ -14,6 +20,10 @@ fn process(socket: TcpStream, controller: Arc<DeviceController>) {
 }
 
 fn main() {
+    log_panics::init();
+    log4rs::init_file("log4rs.yml", Default::default()).unwrap();
+    info!("rust_ofp starting");
+
     let controller = Arc::new(DeviceController::new());
     controller.register_app(Box::new(LearningSwitchApp::new(controller.clone())));
 
