@@ -406,6 +406,7 @@ pub mod openflow0x01 {
 
         pub fn register_device(&self, stream: TcpStream) {
             let device = self.create_device(stream);
+            device.send_message(0, Message::Hello);
             self.start_reading_messages(device);
         }
 
