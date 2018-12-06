@@ -19,6 +19,8 @@ pub trait OfpDevice {
 pub mod openflow0x01 {
     use super::*;
 
+    use std::fmt;
+
     use tokio::io;
     use tokio::net::TcpStream;
     use tokio::prelude::*;
@@ -53,6 +55,10 @@ pub mod openflow0x01 {
                 Some(ref id) => id == device_id,
                 None => false
             }
+        }
+
+        pub fn get_device_id(&self) -> Option<DeviceId> {
+            return self.switch_id.clone();
         }
     }
 
@@ -169,6 +175,11 @@ pub mod openflow0x01 {
         pub fn has_device_id(&self, device_id: &DeviceId) -> bool {
             let state = self.state.lock().unwrap();
             state.has_device_id(device_id)
+        }
+
+        pub fn get_device_id(&self) -> Option<DeviceId> {
+            let state = self.state.lock().unwrap();
+            state.get_device_id()
         }
     }
 
@@ -392,6 +403,12 @@ pub mod openflow0x01 {
     #[derive(Debug, Clone, Hash, Eq, PartialEq)]
     pub struct DeviceId(u64);
 
+    impl fmt::Display for DeviceId {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "DeviceId({})", self.0)
+        }
+    }
+
     struct Devices {
         unknown_devices: Vec<Arc<Device>>,
         devices: HashMap<DeviceId, Arc<Device>>
@@ -409,11 +426,50 @@ pub mod openflow0x01 {
             self.unknown_devices.push(device);
         }
 
+        fn find_unknown_device_index(&self, dpid: &DeviceId) -> Option<usize> {
+            self.unknown_devices.iter().enumerate()
+                .find(|&dev| dev.1.has_device_id(dpid))
+                .map(|r| r.0)
+        }
+
+        fn handle_switch_connected(&mut self, dpid: DeviceId) {
+            // move the element from unknown to known devices
+            let device = self.find_unknown_device_index(&dpid);
+
+            match device {
+                Some(index) => {
+                    let device = self.unknown_devices.remove(index);
+                    match device.get_device_id() {
+                        Some(dpid) => {
+                            self.devices.insert(dpid, device);
+                        },
+                        None => {
+                            warn!("Tried to insert a device without a known id");
+                        }
+                    }
+                },
+                None => {
+                    warn!("Couldn't find device with dpid {}", dpid);
+                }
+            }
+        }
+
+        pub fn event(&mut self, event: &DeviceControllerEvent) {
+            match event {
+                DeviceControllerEvent::SwitchConnected(device_id) => {
+                    self.handle_switch_connected(device_id.clone());
+                }
+                _ => {
+                }
+            }
+        }
+
         fn send_message(&self, device_id: &DeviceId, xid: u32, message: Message) {
-            for device in &self.unknown_devices {
-                if device.has_device_id(device_id) {
-                    device.send_message(xid, message);
-                    break;
+            let device = self.devices.get(device_id);
+            match device {
+                Some(d) => d.send_message(xid, message),
+                None => {
+                    warn!("Could not find device with id {}", device_id);
                 }
             }
         }
@@ -490,7 +546,13 @@ pub mod openflow0x01 {
             tokio::spawn(DeviceFuture::new(device));
         }
 
+        fn handle_event_internally(&self, event: &DeviceControllerEvent) {
+            let mut devices = self.devices.lock().unwrap();
+            devices.event(event);
+        }
+
         fn post(&self, event: DeviceControllerEvent) {
+            self.handle_event_internally(&event);
             let mut apps = self.apps.lock().unwrap();
             apps.post(event);
         }
@@ -538,15 +600,18 @@ pub mod openflow0x01 {
             const MESSAGES_PER_TICK: usize = 10;
             let mut rx = self.controller.message_rx.lock().unwrap();
             for _ in 0..MESSAGES_PER_TICK {
-                match rx.poll().unwrap() {
-                    Async::Ready(Some((device_id, message))) => {
+                match try_ready!(rx.poll()) {
+                    Some((device_id, message)) => {
                         self.handle_message(device_id, message);
                     },
-                    _ => {
-                        break;
+                    None => {
+                        return Ok(Async::Ready(()));
                     }
                 }
             }
+
+            // Make sure we are rescheduled
+            task::current().notify();
             Ok(Async::NotReady)
         }
     }
