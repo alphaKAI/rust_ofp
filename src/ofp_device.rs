@@ -345,8 +345,15 @@ pub mod openflow0x01 {
                             }
                             Ok(Async::Ready(()))
                         },
-                        Err(_e) => {
-                            panic!("Sender: Error writing to socket"); // TODO
+                        Err(e) => {
+                            match e.kind() {
+                                io::ErrorKind::BrokenPipe => {
+                                    Ok(Async::Ready(()))
+                                },
+                                _ => {
+                                    panic!("Sender: Error writing to socket: {:?}", e); // TODO
+                                }
+                            }
                         }
                     }
                 },
