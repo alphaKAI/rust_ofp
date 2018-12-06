@@ -214,9 +214,11 @@ pub mod openflow0x01 {
                         return Ok(Async::NotReady)
                     },
                     Ok(Async::Ready(None)) => {
+                        info!("Device disconnected");
                         return Ok(Async::Ready(()))
                     },
                     Err(e) => {
+                        error!("Error on device stream reader: {:?}", e);
                         panic!("Error on reader: {}", e); // TODO
                     }
                 }
@@ -284,11 +286,11 @@ pub mod openflow0x01 {
 
         fn read_data(&mut self, length: usize) -> Poll<(), io::Error> {
             self.rd.reserve(length);
-            let _n = try_ready!(self.socket.read_buf(&mut self.rd));
-            if self.have_full_message() {
-                Ok(Async::Ready(()))
-            } else {
-                Ok(Async::NotReady)
+            loop {
+                let _n = try_ready!(self.socket.read_buf(&mut self.rd));
+                if self.have_full_message() {
+                    return Ok(Async::Ready(()));
+                }
             }
         }
 
@@ -315,12 +317,23 @@ pub mod openflow0x01 {
         type Error = io::Error;
 
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            try_ready!(self.read_message_data());
-            if self.have_full_message() {
-                let message = self.parse_message()?;
-                Ok(Async::Ready(Some(message)))
-            } else {
-                Ok(Async::Ready(None))
+            let res = self.read_message_data();
+            match res {
+                Ok(Async::NotReady) => {
+                    Ok(Async::NotReady)
+                },
+                Ok(Async::Ready(())) => {
+                    if self.have_full_message() {
+                        let message = self.parse_message()?;
+                        Ok(Async::Ready(Some(message)))
+                    } else {
+                        info!("Reading stream ended");
+                        Ok(Async::Ready(None))
+                    }
+                },
+                Err(e) => {
+                    panic!("Failed to read message: {:?}", e);
+                }
             }
         }
     }
