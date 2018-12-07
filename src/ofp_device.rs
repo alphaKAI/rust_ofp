@@ -439,6 +439,10 @@ pub mod openflow0x01 {
             self.unknown_devices.push(device);
         }
 
+        fn list_all_devices(&self) -> Vec<DeviceId> {
+            self.devices.keys().map(|d| d.clone()).collect()
+        }
+
         fn find_unknown_device_index(&self, dpid: &DeviceId) -> Option<usize> {
             self.unknown_devices.iter().enumerate()
                 .find(|&dev| dev.1.has_device_id(dpid))
@@ -490,6 +494,10 @@ pub mod openflow0x01 {
 
     pub trait DeviceControllerApp {
         fn event(&mut self, event: Arc<DeviceControllerEvent>);
+
+        fn start(&mut self) {
+            // Default implementation is empty
+        }
     }
 
     struct DeviceControllerApps {
@@ -500,6 +508,12 @@ pub mod openflow0x01 {
         pub fn new() -> DeviceControllerApps {
             DeviceControllerApps {
                 apps: Vec::new()
+            }
+        }
+
+        pub fn start(&mut self) {
+            for app in &mut self.apps {
+                app.start();
             }
         }
 
@@ -537,11 +551,19 @@ pub mod openflow0x01 {
             }
         }
 
+        pub fn start(&self) {
+            self.apps.lock().unwrap().start();
+        }
+
         fn create_device(&self, stream: TcpStream) -> Arc<Device> {
             let mut devices = self.devices.lock().unwrap();
             let device = Arc::new(Device::new(stream, self.message_tx.clone()));
             devices.add_device(device.clone());
             device
+        }
+
+        pub fn list_all_devices(&self) -> Vec<DeviceId> {
+            self.devices.lock().unwrap().list_all_devices()
         }
 
         pub fn register_device(&self, stream: TcpStream) {

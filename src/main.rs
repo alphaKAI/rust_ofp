@@ -32,16 +32,20 @@ fn main() {
     let listener = TcpListener::bind(&addr).unwrap();
 
     let controller_future = DeviceControllerFuture::new(controller.clone());
+    let controller_socket_clone = controller.clone();
     let server = listener.incoming().for_each(move |socket| {
-            process(socket, controller.clone());
+            process(socket, controller_socket_clone.clone());
             Ok(())
         })
         .map_err(|err| {
             println!("accept error = {:?}", err);
         });
 
-    let lazy_future = future::lazy(|| {
+    let lazy_future = future::lazy(move || {
+        // TODO it is weird that a controller can't fully start itself
         tokio::spawn(controller_future);
+        controller.start();
+
         tokio::spawn(server);
         Ok(())
     });
