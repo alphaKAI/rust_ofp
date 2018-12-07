@@ -11,6 +11,7 @@ extern crate bytes;
 extern crate log;
 extern crate log4rs;
 
+pub mod apps;
 pub mod learning_switch;
 
 mod bits;

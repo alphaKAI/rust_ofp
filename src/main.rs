@@ -10,6 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 
 extern crate rust_ofp;
+use rust_ofp::apps::StatsProbing;
 use rust_ofp::learning_switch::LearningSwitchApp;
 use rust_ofp::ofp_device::openflow0x01::{DeviceController, DeviceControllerFuture};
 use std::sync::Arc;
@@ -27,6 +28,7 @@ fn main() {
 
     let controller = Arc::new(DeviceController::new());
     controller.register_app(Box::new(LearningSwitchApp::new(controller.clone())));
+    controller.register_app(Box::new(StatsProbing::new(controller.clone())));
 
     let addr = "127.0.0.1:6633".parse().unwrap();
     let listener = TcpListener::bind(&addr).unwrap();
@@ -42,7 +44,7 @@ fn main() {
         });
 
     let lazy_future = future::lazy(move || {
-        // TODO it is weird that a controller can't fully start itself
+        // TODO it is weird that a controller can't fully start itself internally
         tokio::spawn(controller_future);
         controller.start();
 

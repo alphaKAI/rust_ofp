@@ -13,7 +13,7 @@ pub trait OfpDevice {
     fn send_message(&self, xid: u32, message: Self::Message);
 
     /// Handle a message from the device
-    fn process_message(&self, xid: u32, message : Self::Message);
+    fn process_message(&self, xid: u32, message: Self::Message);
 }
 
 pub mod openflow0x01 {
@@ -36,7 +36,7 @@ pub mod openflow0x01 {
     use std::sync::Mutex;
     use std::sync::Arc;
     use std::collections::HashMap;
-    use openflow0x01::PacketIn;
+    use openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats };
 
     #[derive(Debug)]
     struct DeviceState {
@@ -102,17 +102,16 @@ pub mod openflow0x01 {
                     }
 
                     state.switch_id = Some(DeviceId(feats.datapath_id));
-                    //self.switch_connected(cntl, feats.datapath_id, feats)
                 }
-                Message::FlowMod(_) => (),
-                Message::PacketIn(_pkt) => {
-                    //self.packet_in(cntl, self.switch_id.unwrap(), xid, pkt)
-                }
+                Message::FlowMod(_) |
+                Message::PacketIn(_) |
+                Message::StatsReply(_) |
                 Message::FlowRemoved(_) |
                 Message::PortStatus(_) |
                 Message::PacketOut(_) |
                 Message::BarrierRequest |
-                Message::BarrierReply => (),
+                Message::BarrierReply |
+                Message::StatsRequest(_) => (),
             }
 
             // TODO do we need to lock every time only for reading? There might be a better way.
@@ -600,6 +599,7 @@ pub mod openflow0x01 {
 
     pub enum DeviceControllerEvent {
         SwitchConnected(DeviceId),
+        PortStats(DeviceId, Vec<PortStats>),
         PacketIn(DeviceId, PacketIn)
     }
 
@@ -614,11 +614,37 @@ pub mod openflow0x01 {
             }
         }
 
+        fn handle_stats(&self, device_id: DeviceId, stats: StatsResp) {
+            match stats.body {
+                StatsRespBody::DescBody{ .. } => {
+                },
+                StatsRespBody::PortBody{ port_stats } => {
+                    self.controller.post(DeviceControllerEvent::PortStats(device_id, port_stats));
+                },
+                StatsRespBody::TableBody{ .. } => {
+                },
+                StatsRespBody::AggregateStatsBody{ .. } => {
+                },
+                StatsRespBody::FlowStatsBody{ .. } => {
+                },
+                StatsRespBody::QueueBody{ .. } => {
+                },
+                StatsRespBody::VendorBody => {
+                },
+                _ => {
+                    warn!("Unexpected stats body type received");
+                }
+            }
+        }
+
         fn handle_message(&self, device_id: DeviceId, message: Message) {
             match message {
                 Message::FeaturesReply(_feats) => {
                     self.controller.post(DeviceControllerEvent::SwitchConnected(device_id));
                 },
+                Message::StatsReply(stats) => {
+                    self.handle_stats(device_id, stats);
+                }
                 Message::PacketIn(pkt) => {
                     self.controller.post(DeviceControllerEvent::PacketIn(device_id, pkt));
                 }

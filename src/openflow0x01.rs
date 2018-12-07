@@ -1,5 +1,7 @@
+use std::io;
 use std::io::{BufRead, Cursor, Read, Write};
 use std::mem::{size_of, transmute};
+use bytes::Buf;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -368,7 +370,7 @@ pub enum PseudoPort {
 }
 
 #[repr(u16)]
-enum OfpPort {
+pub enum OfpPort {
     OFPPMax = 0xff00,
     OFPPInPort = 0xfff8,
     OFPPTable = 0xfff9,
@@ -1075,20 +1077,29 @@ pub struct FlowStats {
 }
 
 pub struct TransmissionCounter {
-    rx: u64,
-    tx: u64
+    pub rx: u64,
+    pub tx: u64
+}
+
+impl TransmissionCounter {
+    fn from_bytes(bytes: &mut Cursor<Vec<u8>>) -> io::Result<TransmissionCounter> {
+        let rx = bytes.read_u64::<BigEndian>()?;
+        let tx = bytes.read_u64::<BigEndian>()?;
+
+        Ok(TransmissionCounter {rx, tx})
+    }
 }
 
 pub struct PortStats {
-    port_no: u16,
-    packets: TransmissionCounter,
-    bytes: TransmissionCounter,
-    dropped: TransmissionCounter,
-    errors: TransmissionCounter,
-    rx_frame_errors: u64,
-    rx_over_errors: u64,
-    rx_crc_errors: u64,
-    collisions: u64
+    pub port_no: u16,
+    pub packets: TransmissionCounter,
+    pub bytes: TransmissionCounter,
+    pub dropped: TransmissionCounter,
+    pub errors: TransmissionCounter,
+    pub rx_frame_errors: u64,
+    pub rx_over_errors: u64,
+    pub rx_crc_errors: u64,
+    pub collisions: u64
 }
 
 pub struct QueueStats {
@@ -1139,7 +1150,7 @@ pub enum StatsRespBody {
 }
 
 pub struct StatsResp {
-    pub req_type: StatsReqType,
+    pub req_type: StatsReqType, // TODO not required because of the body enum represeting the type
     pub flags: u16,
     pub body: StatsRespBody
 }
@@ -1259,7 +1270,30 @@ impl MessageType for StatsResp {
             StatsReqType::Port => {
                 let mut port_stats = Vec::<PortStats>::new();
 
-                // TODO
+                while bytes.remaining() > size_of::<OfpStatsRespPortStats>() {
+                    let port_no = bytes.read_u16::<BigEndian>().unwrap();
+                    skip_padding_bytes(&mut bytes, 6);
+                    let packets = TransmissionCounter::from_bytes(&mut bytes).unwrap();
+                    let bytes_counter = TransmissionCounter::from_bytes(&mut bytes).unwrap();
+                    let dropped = TransmissionCounter::from_bytes(&mut bytes).unwrap();
+                    let errors = TransmissionCounter::from_bytes(&mut bytes).unwrap();
+                    let rx_frame_errors = bytes.read_u64::<BigEndian>().unwrap();
+                    let rx_over_errors = bytes.read_u64::<BigEndian>().unwrap();
+                    let rx_crc_errors = bytes.read_u64::<BigEndian>().unwrap();
+                    let collisions = bytes.read_u64::<BigEndian>().unwrap();
+
+                    port_stats.push(PortStats {
+                        port_no,
+                        packets,
+                        bytes: bytes_counter,
+                        dropped,
+                        errors,
+                        rx_frame_errors,
+                        rx_over_errors,
+                        rx_crc_errors,
+                        collisions
+                    });
+                }
 
                 StatsRespBody::PortBody {
                     port_stats
@@ -1858,6 +1892,8 @@ pub mod message {
         PacketOut(PacketOut),
         BarrierRequest,
         BarrierReply,
+        StatsRequest(StatsReq),
+        StatsReply(StatsResp)
     }
 
     impl Message {
@@ -1877,6 +1913,8 @@ pub mod message {
                 Message::PacketOut(_) => MsgCode::PacketOut,
                 Message::BarrierRequest => MsgCode::BarrierReq,
                 Message::BarrierReply => MsgCode::BarrierResp,
+                Message::StatsRequest(_) => MsgCode::StatsReq,
+                Message::StatsReply(_) => MsgCode::StatsResp,
             }
         }
 
@@ -1894,6 +1932,7 @@ pub mod message {
                 Message::PortStatus(sts) => PortStatus::marshal(sts, bytes),
                 Message::PacketOut(po) => PacketOut::marshal(po, bytes),
                 Message::BarrierRequest | Message::BarrierReply => (),
+                Message::StatsRequest(stats_req) => StatsReq::marshal(stats_req, bytes),
                 _ => (),
             }
         }
@@ -1915,6 +1954,8 @@ pub mod message {
                 Message::PortStatus(ref ps) => OfpHeader::size() + PortStatus::size_of(ps),
                 Message::PacketOut(ref po) => OfpHeader::size() + PacketOut::size_of(po),
                 Message::BarrierRequest | Message::BarrierReply => OfpHeader::size(),
+                Message::StatsRequest(ref sr) => OfpHeader::size() + StatsReq::size_of(sr),
+                Message::StatsReply(ref sr) => OfpHeader::size() + StatsResp::size_of(sr),
                 _ => 0,
             }
         }
@@ -1974,6 +2015,7 @@ pub mod message {
                 }
                 MsgCode::BarrierReq => Message::BarrierRequest,
                 MsgCode::BarrierResp => Message::BarrierReply,
+                MsgCode::StatsResp => Message::StatsReply(StatsResp::parse(buf)),
                 code => panic!("Unexpected message type {:?}", code),
             };
             (header.xid(), msg)
