@@ -12,6 +12,8 @@ const OFP_MAX_TABLE_NAME_LENGTH: usize = 32;
 const DESC_STR_LENGTH: usize = 256;
 const SERIAL_NUM_LENGTH: usize = 32;
 
+pub const ALL_TABLES: u8 = 0xff;
+
 fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {
     for _ in 0..count {
         bytes.write_u8(0);
@@ -19,9 +21,7 @@ fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {
 }
 
 fn skip_padding_bytes(bytes: &mut Cursor<Vec<u8>>, count: usize) {
-    for _ in 0..count {
-        bytes.read_u8().unwrap();
-    }
+    bytes.consume(count);
 }
 
 /// OpenFlow 1.0 message type codes, used by headers to identify meaning of the rest of a message.
@@ -62,12 +62,14 @@ pub trait MessageType {
     fn marshal(Self, &mut Vec<u8>);
 }
 
+#[derive(Debug)]
 pub struct Mask<T> {
     pub value: T,
     pub mask: Option<T>,
 }
 
 /// Fields to match against flows.
+#[derive(Debug)]
 pub struct Pattern {
     pub dl_src: Option<u64>,
     pub dl_dst: Option<u64>,
@@ -369,7 +371,7 @@ impl Pattern {
 struct OfpMatch(u32, u16, [u8; 6], [u8; 6], u16, u8, u8, u16, u8, u8, u16, u32, u32, u16, u16);
 
 /// Port behavior.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum PseudoPort {
     PhysicalPort(u16),
     InPort,
@@ -439,7 +441,7 @@ impl PseudoPort {
 }
 
 /// Actions associated with flows and packets.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Action {
     Output(PseudoPort),
     SetDlVlan(Option<u16>),
@@ -993,9 +995,9 @@ impl StatsReq {
 impl MessageType for StatsReq {
     fn size_of(msg: &StatsReq) -> usize {
         size_of::<OfpStatsReq>() +
-            match msg.body {
+            match &msg.body {
                 StatsReqBody::DescBody => 0,
-                StatsReqBody::FlowStatsBody{ .. } => size_of::<Pattern>() + size_of::<OfpStatsReqFlowBody>(),
+                StatsReqBody::FlowStatsBody{ pattern, .. } => Pattern::size_of(&pattern) + size_of::<OfpStatsReqFlowBody>(),
                 StatsReqBody::TableBody => 0,
                 StatsReqBody::PortBody{ .. } => size_of::<OfpStatsReqPortBody>(),
                 StatsReqBody::QueueBody{ .. } => size_of::<OfpStatsReqQueueBody>(),
@@ -1075,17 +1077,17 @@ impl MessageType for StatsReq {
 }
 
 pub struct FlowStats {
-    table_id: u8,
-    pattern: Pattern,
-    duration_sec: u32,
-    duration_nsec: u32,
-    priority: u16,
-    idle_timeout: u16,
-    hard_timeout: u16,
-    cookie: u64,
-    packet_count: u64,
-    byte_count: u64,
-    actions: Vec<Action>
+    pub table_id: u8,
+    pub pattern: Pattern,
+    pub duration_sec: u32,
+    pub duration_nsec: u32,
+    pub priority: u16,
+    pub idle_timeout: u16,
+    pub hard_timeout: u16,
+    pub cookie: u64,
+    pub packet_count: u64,
+    pub byte_count: u64,
+    pub actions: Vec<Action>
 }
 
 pub struct TransmissionCounter {
@@ -1254,7 +1256,47 @@ impl MessageType for StatsResp {
             StatsReqType::Flow => {
                 let mut flow_stats = Vec::<FlowStats>::new();
 
-                // TODO
+                while bytes.remaining() > 0 {
+                    let entry_length = bytes.read_u16::<BigEndian>().unwrap() as usize;
+                    if bytes.remaining() + 2 < entry_length {
+                        // TODO error
+                        warn!("Error parsing flow stats response: length too short: {} {}",
+                              bytes.remaining() + 2, entry_length);
+                        break;
+                    }
+
+                    let mut flow_data = vec![0; entry_length - 2];
+                    bytes.read_exact(&mut flow_data).unwrap();
+                    let mut flow = Cursor::new(flow_data);
+
+                    let table_id = flow.read_u8().unwrap();
+                    flow.consume(1);
+                    let pattern = Pattern::parse(&mut flow);
+                    let duration_sec = flow.read_u32::<BigEndian>().unwrap();
+                    let duration_nsec = flow.read_u32::<BigEndian>().unwrap();
+                    let priority = flow.read_u16::<BigEndian>().unwrap();
+                    let idle_timeout = flow.read_u16::<BigEndian>().unwrap();
+                    let hard_timeout = flow.read_u16::<BigEndian>().unwrap();
+                    flow.consume(6);
+                    let cookie = flow.read_u64::<BigEndian>().unwrap();
+                    let packet_count = flow.read_u64::<BigEndian>().unwrap();
+                    let byte_count = flow.read_u64::<BigEndian>().unwrap();
+                    let actions = Action::parse_sequence(&mut flow);
+
+                    flow_stats.push(FlowStats {
+                        table_id,
+                        pattern,
+                        duration_sec,
+                        duration_nsec,
+                        priority,
+                        idle_timeout,
+                        hard_timeout,
+                        cookie,
+                        packet_count,
+                        byte_count,
+                        actions
+                    });
+                }
 
                 StatsRespBody::FlowStatsBody {
                     flow_stats

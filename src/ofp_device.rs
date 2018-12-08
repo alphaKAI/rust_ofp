@@ -36,7 +36,7 @@ pub mod openflow0x01 {
     use std::sync::Mutex;
     use std::sync::Arc;
     use std::collections::HashMap;
-    use openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats };
+    use openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats };
 
     #[derive(Debug)]
     struct DeviceState {
@@ -600,6 +600,7 @@ pub mod openflow0x01 {
     pub enum DeviceControllerEvent {
         SwitchConnected(DeviceId),
         PortStats(DeviceId, Vec<PortStats>),
+        FlowStats(DeviceId, Vec<FlowStats>),
         PacketIn(DeviceId, PacketIn)
     }
 
@@ -625,7 +626,8 @@ pub mod openflow0x01 {
                 },
                 StatsRespBody::AggregateStatsBody{ .. } => {
                 },
-                StatsRespBody::FlowStatsBody{ .. } => {
+                StatsRespBody::FlowStatsBody{ flow_stats } => {
+                    self.controller.post(DeviceControllerEvent::FlowStats(device_id, flow_stats));
                 },
                 StatsRespBody::QueueBody{ .. } => {
                 },
