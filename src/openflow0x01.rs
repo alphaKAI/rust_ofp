@@ -197,11 +197,13 @@ impl Pattern {
     fn parse(bytes: &mut Cursor<Vec<u8>>) -> Pattern {
         let w = Wildcards::parse(bytes.read_u32::<BigEndian>().unwrap());
         let in_port = if w.in_port {
+            bytes.consume( 2);
             None
         } else {
             Some(bytes.read_u16::<BigEndian>().unwrap())
         };
         let dl_src = if w.dl_src {
+            bytes.consume(6);
             None
         } else {
             let mut arr: [u8; 6] = [0; 6];
@@ -211,6 +213,7 @@ impl Pattern {
             Some(mac_of_bytes(arr))
         };
         let dl_dst = if w.dl_dst {
+            bytes.consume(6);
             None
         } else {
             let mut arr: [u8; 6] = [0; 6];
@@ -220,6 +223,7 @@ impl Pattern {
             Some(mac_of_bytes(arr))
         };
         let dl_vlan = if w.dl_vlan {
+            bytes.consume(2);
             None
         } else {
             let vlan = bytes.read_u16::<BigEndian>().unwrap();
@@ -230,28 +234,33 @@ impl Pattern {
             }
         };
         let dl_vlan_pcp = if w.dl_vlan_pcp {
+            bytes.consume(1);
             None
         } else {
             Some(bytes.read_u8().unwrap())
         };
         bytes.consume(1);
         let dl_typ = if w.dl_type {
+            bytes.consume(2);
             None
         } else {
             Some(bytes.read_u16::<BigEndian>().unwrap())
         };
         let nw_tos = if w.nw_tos {
+            bytes.consume(1);
             None
         } else {
             Some(bytes.read_u8().unwrap())
         };
         let nw_proto = if w.nw_proto {
+            bytes.consume(1);
             None
         } else {
             Some(bytes.read_u8().unwrap())
         };
         bytes.consume(2);
         let nw_src = if w.nw_src >= 32 {
+            bytes.consume(4);
             None
         } else if w.nw_src == 0 {
             Some(Mask {
@@ -265,6 +274,7 @@ impl Pattern {
             })
         };
         let nw_dst = if w.nw_dst >= 32 {
+            bytes.consume(4);
             None
         } else if w.nw_dst == 0 {
             Some(Mask {
@@ -278,11 +288,13 @@ impl Pattern {
             })
         };
         let tp_src = if w.tp_src {
+            bytes.consume(2);
             None
         } else {
             Some(bytes.read_u16::<BigEndian>().unwrap())
         };
         let tp_dst = if w.tp_dst {
+            bytes.consume(2);
             None
         } else {
             Some(bytes.read_u16::<BigEndian>().unwrap())
@@ -597,7 +609,7 @@ impl Action {
     }
 
     fn parse_sequence(bytes: &mut Cursor<Vec<u8>>) -> Vec<Action> {
-        if bytes.get_ref().is_empty() {
+        if bytes.remaining() == 0 {
             vec![]
         } else {
             let action = Action::_parse(bytes);
