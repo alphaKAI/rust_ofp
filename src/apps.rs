@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use ofp_device::openflow0x01::{DeviceControllerApp, DeviceControllerEvent, DeviceId };
 use ofp_device::OfpDevice;
 use openflow0x01::message::Message;
-use openflow0x01::{ StatsReq, StatsReqType, StatsReqBody, OfpPort, PortStats, FlowStats,
-                    Pattern, ALL_TABLES };
+use openflow0x01::{ StatsReq, StatsReqType, StatsReqBody, OfpPort, OfpQueue, PortStats, FlowStats,
+                    TableStats, QueueStats, Pattern, ALL_TABLES };
 use ofp_device::openflow0x01::DeviceController;
 
 fn request_stats(controller: Arc<DeviceController>) {
@@ -23,7 +23,6 @@ fn request_stats(controller: Arc<DeviceController>) {
                     port_no: OfpPort::OFPPNone as u16
                 }
             });
-
             info!("Requesting port stats for {}", device);
             controller.send_message(device, 0, msg);
 
@@ -36,8 +35,26 @@ fn request_stats(controller: Arc<DeviceController>) {
                     out_port: OfpPort::OFPPNone as u16
                 }
             });
-
             info!("Requesting flow stats for {}", device);
+            controller.send_message(device, 0, msg);
+
+            let msg = Message::StatsRequest( StatsReq {
+                req_type: StatsReqType::Table,
+                flags: 0,
+                body: StatsReqBody::TableBody
+            });
+            info!("Requesting table stats for {}", device);
+            controller.send_message(device, 0, msg);
+
+            let msg = Message::StatsRequest( StatsReq {
+                req_type: StatsReqType::Queue,
+                flags: 0,
+                body: StatsReqBody::QueueBody {
+                    port_no: OfpPort::OFPPAll as u16,
+                    queue_id: OfpQueue::OFPQAll as u32,
+                }
+            });
+            info!("Requesting queue stats for {}", device);
             controller.send_message(device, 0, msg);
         });
 }
@@ -80,6 +97,31 @@ impl StatsProbing {
                  flow.duration_sec, flow.duration_nsec, flow.packet_count,
                  flow.byte_count, flow.actions);
     }
+
+    fn print_table_stats(&self, device_id: &DeviceId, table_stats: &Vec<TableStats>) {
+        for table in table_stats {
+            self.print_single_table_stats(device_id, table);
+        }
+    }
+
+    fn print_single_table_stats(&self, device_id: &DeviceId, table: &TableStats) {
+        println!("Table stats: device:{}, table:{}, name:{}",
+                 device_id, table.table_id, table.name);
+        println!("max_entries:{}, active_count:{}, lookup_count:{}, matched_count:{}",
+                 table.max_entries, table.active_count, table.lookup_count, table.matched_count);
+    }
+
+    fn print_queue_stats(&self, device_id: &DeviceId, queue_stats: &Vec<QueueStats>) {
+        for queue in queue_stats {
+            self.print_single_queue_stats(device_id, queue);
+        }
+    }
+
+    fn print_single_queue_stats(&self, device_id: &DeviceId, queue: &QueueStats) {
+        println!("Queue stats: device:{}, port:{}, queue:{}, bytes:{}, packets:{}, errors:{}",
+                 device_id, queue.port_no, queue.queue_id,
+                 queue.tx_bytes, queue.tx_packets, queue.tx_errors);
+    }
 }
 
 impl DeviceControllerApp for StatsProbing {
@@ -90,6 +132,12 @@ impl DeviceControllerApp for StatsProbing {
             },
             DeviceControllerEvent::FlowStats(ref device_id, ref flow_stats) => {
                 self.print_flow_stats(device_id, flow_stats);
+            },
+            DeviceControllerEvent::QueueStats(ref device_id, ref queue_stats) => {
+                self.print_queue_stats(device_id, queue_stats);
+            },
+            DeviceControllerEvent::TableStats(ref device_id, ref table_stats) => {
+                self.print_table_stats(device_id, table_stats);
             }
             _ => {}
         }

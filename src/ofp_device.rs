@@ -36,7 +36,7 @@ pub mod openflow0x01 {
     use std::sync::Mutex;
     use std::sync::Arc;
     use std::collections::HashMap;
-    use openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats };
+    use openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats, TableStats, QueueStats };
 
     #[derive(Debug)]
     struct DeviceState {
@@ -601,6 +601,8 @@ pub mod openflow0x01 {
         SwitchConnected(DeviceId),
         PortStats(DeviceId, Vec<PortStats>),
         FlowStats(DeviceId, Vec<FlowStats>),
+        TableStats(DeviceId, Vec<TableStats>),
+        QueueStats(DeviceId, Vec<QueueStats>),
         PacketIn(DeviceId, PacketIn)
     }
 
@@ -622,14 +624,16 @@ pub mod openflow0x01 {
                 StatsRespBody::PortBody{ port_stats } => {
                     self.controller.post(DeviceControllerEvent::PortStats(device_id, port_stats));
                 },
-                StatsRespBody::TableBody{ .. } => {
+                StatsRespBody::TableBody{ table_stats } => {
+                    self.controller.post(DeviceControllerEvent::TableStats(device_id, table_stats));
                 },
                 StatsRespBody::AggregateStatsBody{ .. } => {
                 },
                 StatsRespBody::FlowStatsBody{ flow_stats } => {
                     self.controller.post(DeviceControllerEvent::FlowStats(device_id, flow_stats));
                 },
-                StatsRespBody::QueueBody{ .. } => {
+                StatsRespBody::QueueBody{ queue_stats } => {
+                    self.controller.post(DeviceControllerEvent::QueueStats(device_id, queue_stats));
                 },
                 StatsRespBody::VendorBody => {
                 },

@@ -927,6 +927,11 @@ impl MessageType for FlowMod {
     }
 }
 
+#[repr(u32)]
+pub enum OfpQueue {
+    OFPQAll = 0xffffffff,
+}
+
 /// Type of stats request.
 #[repr(u16)]
 pub enum StatsReqType {
@@ -1117,21 +1122,21 @@ pub struct PortStats {
 }
 
 pub struct QueueStats {
-    port_no: u16,
-    queue_id: u32,
-    tx_bytes: u64,
-    tx_packets: u64,
-    tx_errors: u64
+    pub port_no: u16,
+    pub queue_id: u32,
+    pub tx_bytes: u64,
+    pub tx_packets: u64,
+    pub tx_errors: u64
 }
 
 pub struct TableStats {
-    table_id: u8,
-    name: [char; OFP_MAX_TABLE_NAME_LENGTH],
-    wildcards: u32,
-    max_entries: u32,
-    active_count: u32,
-    lookup_count: u64,
-    matched_count: u64
+    pub table_id: u8,
+    pub name: String,
+    wildcards: Wildcards,
+    pub max_entries: u32,
+    pub active_count: u32,
+    pub lookup_count: u64,
+    pub matched_count: u64
 }
 
 /// Type of Body for Stats Response
@@ -1314,8 +1319,28 @@ impl MessageType for StatsResp {
             },
             StatsReqType::Table => {
                 let mut table_stats = Vec::<TableStats>::new();
+                while bytes.remaining() > size_of::<OfpStatsRespTableStats>() {
+                    let table_id = bytes.read_u8().unwrap();
+                    bytes.consume(3);
+                    let mut name: [u8; OFP_MAX_TABLE_NAME_LENGTH] = [0; OFP_MAX_TABLE_NAME_LENGTH];
+                    bytes.read(&mut name).unwrap();
+                    let wildcards_int = bytes.read_u32::<BigEndian>().unwrap();
+                    let wildcards = Wildcards::parse(wildcards_int);
+                    let max_entries = bytes.read_u32::<BigEndian>().unwrap();
+                    let active_count = bytes.read_u32::<BigEndian>().unwrap();
+                    let lookup_count = bytes.read_u64::<BigEndian>().unwrap();
+                    let matched_count = bytes.read_u64::<BigEndian>().unwrap();
 
-                // TODO
+                    table_stats.push(TableStats {
+                        table_id,
+                        name: String::from_utf8(name.to_vec()).unwrap(),
+                        wildcards,
+                        max_entries,
+                        active_count,
+                        lookup_count,
+                        matched_count
+                    });
+                }
 
                 StatsRespBody::TableBody {
                     table_stats
@@ -1356,7 +1381,22 @@ impl MessageType for StatsResp {
             StatsReqType::Queue => {
                 let mut queue_stats = Vec::<QueueStats>::new();
 
-                // TODO
+                while bytes.remaining() > size_of::<OfpStatsRespQueueStats>() {
+                    let port_no = bytes.read_u16::<BigEndian>().unwrap();
+                    bytes.consume(2);
+                    let queue_id = bytes.read_u32::<BigEndian>().unwrap();
+                    let tx_bytes = bytes.read_u64::<BigEndian>().unwrap();
+                    let tx_packets = bytes.read_u64::<BigEndian>().unwrap();
+                    let tx_errors = bytes.read_u64::<BigEndian>().unwrap();
+
+                    queue_stats.push(QueueStats {
+                        port_no,
+                        queue_id,
+                        tx_bytes,
+                        tx_packets,
+                        tx_errors
+                    });
+                }
 
                 StatsRespBody::QueueBody {
                     queue_stats
