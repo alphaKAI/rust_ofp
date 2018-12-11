@@ -1019,7 +1019,7 @@ impl MessageType for StatsReq {
             StatsReqType::Flow | StatsReqType::Aggregate => {
                 let pattern = Pattern::parse(&mut bytes);
                 let table_id = bytes.read_u8().unwrap();
-                skip_padding_bytes(&mut bytes, 1);
+                bytes.consume(1);
                 let out_port = bytes.read_u16::<BigEndian>().unwrap();
 
                 StatsReqBody::FlowStatsBody {
@@ -1311,7 +1311,7 @@ impl MessageType for StatsResp {
                 let packet_count = bytes.read_u64::<BigEndian>().unwrap();
                 let byte_count = bytes.read_u64::<BigEndian>().unwrap();
                 let flow_count = bytes.read_u32::<BigEndian>().unwrap();
-                skip_padding_bytes(&mut bytes, 4);
+                bytes.consume(4);
 
                 StatsRespBody::AggregateStatsBody {
                     packet_count, byte_count, flow_count

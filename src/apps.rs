@@ -56,6 +56,18 @@ fn request_stats(controller: Arc<DeviceController>) {
             });
             info!("Requesting queue stats for {}", device);
             controller.send_message(device, 0, msg);
+
+            let msg = Message::StatsRequest( StatsReq {
+                req_type: StatsReqType::Aggregate,
+                flags: 0,
+                body: StatsReqBody::FlowStatsBody {
+                    pattern: Pattern::match_all(),
+                    table_id: ALL_TABLES,
+                    out_port: OfpPort::OFPPAll as u16
+                }
+            });
+            info!("Requesting aggregated stats for {}", device);
+            controller.send_message(device, 0, msg);
         });
 }
 
@@ -122,6 +134,11 @@ impl StatsProbing {
                  device_id, queue.port_no, queue.queue_id,
                  queue.tx_bytes, queue.tx_packets, queue.tx_errors);
     }
+
+    fn print_aggregated_stats(&self, device_id: &DeviceId, packets: &u64, bytes: &u64, flows: &u32) {
+        println!("Aggregate stats: device:{}, packets:{}, bytes:{}, flows:{}",
+                 device_id, packets, bytes, flows);
+    }
 }
 
 impl DeviceControllerApp for StatsProbing {
@@ -138,6 +155,9 @@ impl DeviceControllerApp for StatsProbing {
             },
             DeviceControllerEvent::TableStats(ref device_id, ref table_stats) => {
                 self.print_table_stats(device_id, table_stats);
+            },
+            DeviceControllerEvent::AggregateStats(ref device_id, ref packets, ref bytes, ref flows) => {
+                self.print_aggregated_stats(device_id, packets, bytes, flows);
             }
             _ => {}
         }

@@ -603,6 +603,7 @@ pub mod openflow0x01 {
         FlowStats(DeviceId, Vec<FlowStats>),
         TableStats(DeviceId, Vec<TableStats>),
         QueueStats(DeviceId, Vec<QueueStats>),
+        AggregateStats(DeviceId, u64, u64, u32),
         PacketIn(DeviceId, PacketIn)
     }
 
@@ -627,7 +628,10 @@ pub mod openflow0x01 {
                 StatsRespBody::TableBody{ table_stats } => {
                     self.controller.post(DeviceControllerEvent::TableStats(device_id, table_stats));
                 },
-                StatsRespBody::AggregateStatsBody{ .. } => {
+                StatsRespBody::AggregateStatsBody{ packet_count, byte_count, flow_count } => {
+                    // TODO improve this. Need to track the request to make the response make
+                    // sense.
+                    self.controller.post(DeviceControllerEvent::AggregateStats(device_id, packet_count, byte_count, flow_count));
                 },
                 StatsRespBody::FlowStatsBody{ flow_stats } => {
                     self.controller.post(DeviceControllerEvent::FlowStats(device_id, flow_stats));
