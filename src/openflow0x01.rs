@@ -20,10 +20,6 @@ fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {
     }
 }
 
-fn skip_padding_bytes(bytes: &mut Cursor<Vec<u8>>, count: usize) {
-    bytes.consume(count);
-}
-
 /// OpenFlow 1.0 message type codes, used by headers to identify meaning of the rest of a message.
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -1029,14 +1025,14 @@ impl MessageType for StatsReq {
             StatsReqType::Table => StatsReqBody::TableBody,
             StatsReqType::Port => {
                 let port_no = bytes.read_u16::<BigEndian>().unwrap();
-                skip_padding_bytes(&mut bytes, 6);
+                bytes.consume(6);
                 StatsReqBody::PortBody {
                     port_no
                 }
             },
             StatsReqType::Queue => {
                 let port_no = bytes.read_u16::<BigEndian>().unwrap();
-                skip_padding_bytes(&mut bytes, 2);
+                bytes.consume(2);
                 let queue_id = bytes.read_u32::<BigEndian>().unwrap();
                 StatsReqBody::QueueBody {
                     port_no,
@@ -1351,7 +1347,7 @@ impl MessageType for StatsResp {
 
                 while bytes.remaining() > size_of::<OfpStatsRespPortStats>() {
                     let port_no = bytes.read_u16::<BigEndian>().unwrap();
-                    skip_padding_bytes(&mut bytes, 6);
+                    bytes.consume(6);
                     let packets = TransmissionCounter::from_bytes(&mut bytes).unwrap();
                     let bytes_counter = TransmissionCounter::from_bytes(&mut bytes).unwrap();
                     let dropped = TransmissionCounter::from_bytes(&mut bytes).unwrap();
