@@ -707,6 +707,7 @@ impl Timeout {
 }
 
 /// Capabilities supported by the datapath.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Capabilities {
     pub flow_stats: bool,
     pub table_stats: bool,
@@ -718,6 +719,7 @@ pub struct Capabilities {
 }
 
 /// Actions supported by the datapath.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct SupportedActions {
     pub output: bool,
     pub set_vlan_id: bool,
@@ -735,6 +737,7 @@ pub struct SupportedActions {
 }
 
 /// Switch features.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SwitchFeatures {
     pub datapath_id: u64,
     pub num_buffers: u32,
@@ -1663,6 +1666,7 @@ impl MessageType for FlowRemoved {
 
 /// STP state of a port.
 #[repr(u8)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum StpState {
     Listen,
     Learn,
@@ -1671,12 +1675,14 @@ pub enum StpState {
 }
 
 /// Current state of a physical port. Not configurable by the controller.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortState {
     pub down: bool,
     pub stp_state: StpState,
 }
 
 /// Features of physical ports available in a datapath.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct PortFeatures {
     pub f_10mbhd: bool,
     pub f_10mbfd: bool,
@@ -1715,6 +1721,7 @@ impl PortFeatures {
 ///
 /// These flags are used both to describe the current configuration of a physical port,
 /// and to configure a port's behavior.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct PortConfig {
     pub down: bool,
     pub no_stp: bool,
@@ -1726,6 +1733,7 @@ pub struct PortConfig {
 }
 
 /// Description of a physical port.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortDesc {
     pub port_no: u16,
     pub hw_addr: u64,
@@ -1756,11 +1764,16 @@ impl PortDesc {
             mac_of_bytes(arr)
         };
         let name = {
-            let mut arr: [u8; 16] = [0; 16];
-            for i in 0..16 {
-                arr[i] = bytes.read_u8().unwrap();
+            let mut arr = Vec::with_capacity(16);
+            let mut input: [u8; 16] = [0; 16];
+            bytes.read_exact(&mut input);
+            for i in input.iter() {
+                if *i == 0 {
+                    break;
+                }
+                arr.push(*i);
             }
-            String::from_utf8(arr.to_vec()).unwrap()
+            String::from_utf8(arr).unwrap()
         };
         let config = {
             let d = bytes.read_u32::<BigEndian>().unwrap();
@@ -2135,6 +2148,312 @@ pub mod message {
         match *p {
             Payload::Buffered(_, ref b) |
             Payload::NotBuffered(ref b) => Packet::parse(&b),
+        }
+    }
+
+    mod tests {
+        use super::*;
+        use std::fs::File;
+
+        const TEST_XID: u32 = 0x12345678;
+        const TEST_DPID: u64 = 0x001122334455667788;
+
+        fn error_vector() -> Vec<u8> {
+            vec![0xAB; 10]
+        }
+
+        fn echo_vector() -> Vec<u8> {
+            vec![0xAB; 5]
+        }
+
+        fn switch_ports() -> Vec<PortDesc> {
+            let mut vec = vec!();
+            vec.push(PortDesc {
+                port_no: 1,
+                hw_addr: 0xAABBCCDDEEFF,
+                name: "port_1".to_string(),
+                config: PortConfig {
+                    down: false,
+                    no_stp: false,
+                    no_recv: false,
+                    no_recv_stp: true,
+                    no_flood: false,
+                    no_fwd: false,
+                    no_packet_in: false,
+                },
+                state: PortState {
+                    down: false,
+                    stp_state: StpState::Listen,
+                },
+                curr: PortFeatures {
+                    f_10mbhd: true,
+                    f_10mbfd: true,
+                    f_100mbhd: true,
+                    f_100mbfd: true,
+                    f_1gbhd: true,
+                    f_1gbfd: true,
+                    f_10gbfd: false,
+                    copper: true,
+                    fiber: false,
+                    autoneg: true,
+                    pause: true,
+                    pause_asym: true,
+                },
+                advertised: PortFeatures {
+                    f_10mbhd: true,
+                    f_10mbfd: true,
+                    f_100mbhd: true,
+                    f_100mbfd: true,
+                    f_1gbhd: true,
+                    f_1gbfd: true,
+                    f_10gbfd: false,
+                    copper: true,
+                    fiber: false,
+                    autoneg: true,
+                    pause: true,
+                    pause_asym: true,
+                },
+                supported: PortFeatures {
+                    f_10mbhd: true,
+                    f_10mbfd: true,
+                    f_100mbhd: true,
+                    f_100mbfd: true,
+                    f_1gbhd: true,
+                    f_1gbfd: true,
+                    f_10gbfd: false,
+                    copper: true,
+                    fiber: false,
+                    autoneg: true,
+                    pause: true,
+                    pause_asym: true,
+                },
+                peer: PortFeatures {
+                    f_10mbhd: true,
+                    f_10mbfd: true,
+                    f_100mbhd: true,
+                    f_100mbfd: true,
+                    f_1gbhd: false,
+                    f_1gbfd: false,
+                    f_10gbfd: false,
+                    copper: true,
+                    fiber: false,
+                    autoneg: true,
+                    pause: true,
+                    pause_asym: true,
+                }
+            });
+
+            vec
+        }
+
+        fn switch_features() -> SwitchFeatures {
+            SwitchFeatures {
+                datapath_id: TEST_DPID,
+                num_buffers: 200,
+                num_tables: 254,
+                supported_capabilities: Capabilities {
+                    flow_stats: true,
+                    table_stats: true,
+                    port_stats: true,
+                    stp: false,
+                    ip_reasm: false,
+                    queue_stats: false,
+                    arp_match_ip: false,
+                },
+                supported_actions: SupportedActions {
+                    output: true,
+                    set_vlan_id: false,
+                    set_vlan_pcp: false,
+                    strip_vlan: false,
+                    set_dl_src: true,
+                    set_dl_dst: true,
+                    set_nw_src: true,
+                    set_nw_dst: true,
+                    set_nw_tos: false,
+                    set_tp_src: true,
+                    set_tp_dst: true,
+                    enqueue: false,
+                    vendor: false,
+                },
+                ports: switch_ports(),
+            }
+        }
+
+        fn load_reference(filepath: &str) -> Vec<u8> {
+            let mut f = File::open(filepath)
+                .expect("Could not find sample file");
+            let mut buffer = Vec::new();
+            f.read_to_end(&mut buffer).expect("Failed to read sample file");
+
+            buffer
+        }
+
+        fn parse(data: Vec<u8>) -> (OfpHeader, Message) {
+            let (header, tail) = data.split_at(OfpHeader::size());
+
+            let ofp_header = OfpHeader::parse(header);
+            let (payload, _) = tail.split_at(ofp_header.length() - OfpHeader::size());
+
+            let (_xid, ofp_message) = Message::parse(&ofp_header, payload);
+            (ofp_header, ofp_message)
+        }
+
+        fn verify_header(header: &OfpHeader) {
+            assert_eq!(header.version(), 1);
+            assert_eq!(header.xid(), TEST_XID);
+        }
+
+        #[test]
+        fn test_marshall_hello() {
+            let hello = Message::Hello;
+            let data = Message::marshal(TEST_XID, hello);
+            let reference = load_reference(&"test/data/hello10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_hello() {
+            let reference = load_reference(&"test/data/hello10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::Hello => {},
+                _ => {
+                    assert!(false, "Should be a Hello message");
+                }
+            }
+        }
+
+        #[test]
+        #[ignore] // TODO marshalling error not implemented
+        fn test_marshall_error() {
+            let error = Message::Error(
+                            Error::Error(
+                                ErrorType::BadRequest(BadRequest::BadLen), error_vector()));
+            let data = Message::marshal(TEST_XID, error);
+            let reference = load_reference(&"test/data/error10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_error() {
+            let reference = load_reference(&"test/data/error10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::Error(Error::Error(
+                                   ErrorType::BadRequest(BadRequest::BadLen), error_data)) => {
+                    assert_eq!(error_vector(), error_data);
+                },
+                _ => {
+                    assert!(false, "Should be a BadRequest::BadType Error message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_marshall_echo_request() {
+            let echo = Message::EchoRequest(echo_vector());
+            let data = Message::marshal(TEST_XID, echo);
+            let reference = load_reference(&"test/data/echo10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_echo_request() {
+            let reference = load_reference(&"test/data/echo10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::EchoRequest(data) => {
+                    assert_eq!(echo_vector(), data);
+                },
+                _ => {
+                    assert!(false, "Should be an EchoRequest message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_marshall_echo_reply() {
+            let echo = Message::EchoReply(echo_vector());
+            let data = Message::marshal(TEST_XID, echo);
+            let reference = load_reference(&"test/data/echo_reply10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_echo_reply() {
+            let reference = load_reference(&"test/data/echo_reply10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::EchoReply(data) => {
+                    assert_eq!(echo_vector(), data);
+                },
+                _ => {
+                    assert!(false, "Should be an EchoReply message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_marshall_features_request() {
+            let echo = Message::FeaturesReq;
+            let data = Message::marshal(TEST_XID, echo);
+            let reference = load_reference(&"test/data/features_request10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        #[ignore] // Not implemented
+        fn test_parse_features_request() {
+            let reference = load_reference(&"test/data/features_request10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::FeaturesReq => {
+                },
+                _ => {
+                    assert!(false, "Should be an Features Request message");
+                }
+            }
+        }
+
+        #[test]
+        #[ignore] // Not implemented
+        fn test_marshall_features_reply() {
+            let features = Message::FeaturesReply(switch_features());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/features_reply10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_features_reply() {
+            let reference = load_reference(&"test/data/features_reply10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::FeaturesReply(features) => {
+                    assert_eq!(switch_features(), features);
+                },
+                _ => {
+                    assert!(false, "Should be an Features Reply message");
+                }
+            }
         }
     }
 }
