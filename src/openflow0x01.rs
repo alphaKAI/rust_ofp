@@ -58,14 +58,14 @@ pub trait MessageType {
     fn marshal(Self, &mut Vec<u8>);
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Mask<T> {
     pub value: T,
     pub mask: Option<T>,
 }
 
 /// Fields to match against flows.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Pattern {
     pub dl_src: Option<u64>,
     pub dl_dst: Option<u64>,
@@ -81,6 +81,7 @@ pub struct Pattern {
     pub in_port: Option<u16>,
 }
 
+#[derive(Debug, PartialEq, Clone)]
 struct Wildcards {
     in_port: bool,
     dl_vlan: bool,
@@ -367,7 +368,7 @@ impl Pattern {
 struct OfpMatch(u32, u16, [u8; 6], [u8; 6], u16, u8, u8, u16, u8, u8, u16, u32, u32, u16, u16);
 
 /// Port behavior.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PseudoPort {
     PhysicalPort(u16),
     InPort,
@@ -437,11 +438,12 @@ impl PseudoPort {
 }
 
 /// Actions associated with flows and packets.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Action {
     Output(PseudoPort),
     SetDlVlan(Option<u16>),
     SetDlVlanPcp(u8),
+    // TODO update those to use a MacAddress struct instead of bytes
     SetDlSrc(u64),
     SetDlDst(u64),
     SetNwSrc(u32),
@@ -685,6 +687,7 @@ impl Action {
 }
 
 /// How long before a flow entry expires.
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Timeout {
     Permanent,
     ExpiresAfter(u16),
@@ -817,6 +820,7 @@ impl MessageType for SwitchFeatures {
 
 /// Type of modification to perform on a flow table.
 #[repr(u16)]
+#[derive(Debug, PartialEq)]
 pub enum FlowModCmd {
     AddFlow,
     ModFlow,
@@ -826,6 +830,7 @@ pub enum FlowModCmd {
 }
 
 /// Represents modifications to a flow table from the controller.
+#[derive(Debug, PartialEq)]
 pub struct FlowMod {
     pub command: FlowModCmd,
     pub pattern: Pattern,
@@ -2279,6 +2284,51 @@ pub mod message {
             }
         }
 
+        fn flow_mod_pattern() -> Pattern {
+            Pattern {
+                dl_src: None,
+                dl_dst: None,
+                dl_typ: Some(0x0800),
+                dl_vlan: None,
+                dl_vlan_pcp: None,
+                nw_src: None,
+                nw_dst: Some(Mask {
+                    value: 0x10000001,
+                    mask: Some(8) // This is the opposite of a regular network mask
+                }),
+                nw_proto: Some(6),
+                nw_tos: None,
+                tp_src: Some(3000),
+                tp_dst: Some(4000),
+                in_port: Some(1),
+            }
+        }
+
+        fn flow_mod_actions() -> Vec<Action> {
+            let mut actions = Vec::new();
+
+            actions.push(Action::SetDlDst(0x1234567890AB));
+            actions.push(Action::Output(PseudoPort::PhysicalPort(1)));
+
+            actions
+        }
+
+        fn flow_mod() -> FlowMod {
+            FlowMod {
+                command: FlowModCmd::AddFlow,
+                pattern: flow_mod_pattern(),
+                priority: 16,
+                actions: flow_mod_actions(),
+                cookie: 0x1234567887654321,
+                idle_timeout: Timeout::ExpiresAfter(180),
+                hard_timeout: Timeout::Permanent,
+                notify_when_removed: true,
+                apply_to_packet: None,
+                out_port: None,
+                check_overlap: true,
+            }
+        }
+
         fn load_reference(filepath: &str) -> Vec<u8> {
             let mut f = File::open(filepath)
                 .expect("Could not find sample file");
@@ -2451,9 +2501,61 @@ pub mod message {
                     assert_eq!(switch_features(), features);
                 },
                 _ => {
-                    assert!(false, "Should be an Features Reply message");
+                    assert!(false, "Should be a Features Reply message");
                 }
             }
         }
+
+        #[test]
+        fn test_marshall_flow_mod() {
+            let features = Message::FlowMod(flow_mod());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/flowmod10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_flow_mod() {
+            let reference = load_reference(&"test/data/flowmod10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::FlowMod(f) => {
+                    assert_eq!(flow_mod(), f);
+                },
+                _ => {
+                    assert!(false, "Should be a Flow Mod message");
+                }
+            }
+        }
+
+        /*
+        PacketIn(PacketIn),
+        FlowRemoved(FlowRemoved),
+        PortStatus(PortStatus),
+        PacketOut(PacketOut),
+        BarrierRequest,
+        BarrierReply,
+        StatsRequest(StatsReq),
+        StatsReply(StatsResp)
+        */
+    }
+
+
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_serialization() {
+        let mask = 8;
+        let data = 0;
+        let serialized = Wildcards::set_nw_mask(data, 14, mask);
+        let deserialized = Wildcards::get_nw_mask(serialized, 14);
+
+        assert_eq!(mask, deserialized);
     }
 }
