@@ -7,7 +7,7 @@ use bits::test_bit;
 pub fn bytes_of_mac(addr: u64) -> [u8; 6] {
     let mut arr = [0; 6];
     for i in 0..6 {
-        arr[i] = ((addr >> (8 * i)) & 0xff) as u8;
+        arr[5 - i] = ((addr >> (8 * i)) & 0xff) as u8;
     }
     arr
 }
@@ -398,5 +398,19 @@ impl Packet {
             dl_vlan_pcp: pcp,
             nw: nw_header,
         }
+    }
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mac_bytes_conversion() {
+        let mac = 0x1234567890AB;
+
+        let serialized = bytes_of_mac(mac);
+        let deserialized = mac_of_bytes(serialized);
+
+        assert_eq!(mac, deserialized);
     }
 }
