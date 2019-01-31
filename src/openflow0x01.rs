@@ -1448,7 +1448,7 @@ impl MessageType for StatsResp {
 
 
 /// The data associated with a packet received by the controller.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Payload {
     Buffered(u32, Vec<u8>),
     NotBuffered(Vec<u8>),
@@ -1472,7 +1472,7 @@ impl Payload {
 
 /// The reason a packet arrives at the controller.
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum PacketInReason {
     NoMatch,
     ExplicitSend,
@@ -1480,7 +1480,7 @@ pub enum PacketInReason {
 
 
 /// Represents packets received by the datapath and sent to the controller.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PacketIn {
     pub input_payload: Payload,
     pub total_len: u16,
@@ -1534,6 +1534,7 @@ impl MessageType for PacketIn {
         bytes.write_u16::<BigEndian>(pi.total_len).unwrap();
         bytes.write_u16::<BigEndian>(pi.port).unwrap();
         bytes.write_u8(pi.reason as u8).unwrap();
+        bytes.write_u8(0); // Padding
         Payload::marshal(pi.input_payload, bytes)
     }
 }
@@ -2329,6 +2330,20 @@ pub mod message {
             }
         }
 
+        fn packet_data() -> Vec<u8> {
+            let data: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+            data.to_vec()
+        }
+
+        fn packet_in() -> PacketIn {
+            PacketIn {
+                input_payload: Payload::NotBuffered(packet_data()),
+                total_len: 10,
+                port: 1,
+                reason: PacketInReason::ExplicitSend
+            }
+        }
+
         fn load_reference(filepath: &str) -> Vec<u8> {
             let mut f = File::open(filepath)
                 .expect("Could not find sample file");
@@ -2531,8 +2546,32 @@ pub mod message {
             }
         }
 
+        #[test]
+        fn test_marshall_packet_in() {
+            let features = Message::PacketIn(packet_in());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/packetin10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_packet_in() {
+            let reference = load_reference(&"test/data/packetin10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::PacketIn(packet) => {
+                    assert_eq!(packet_in(), packet);
+                },
+                _ => {
+                    assert!(false, "Should be a PacketIn message");
+                }
+            }
+        }
+
         /*
-        PacketIn(PacketIn),
         FlowRemoved(FlowRemoved),
         PortStatus(PortStatus),
         PacketOut(PacketOut),
