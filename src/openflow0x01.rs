@@ -1540,6 +1540,7 @@ impl MessageType for PacketIn {
 }
 
 /// Represents packets sent from the controller.
+#[derive(Debug, PartialEq)]
 pub struct PacketOut {
     pub output_payload: Payload,
     pub port_id: Option<u16>,
@@ -2344,6 +2345,14 @@ pub mod message {
             }
         }
 
+        fn packet_out() -> PacketOut {
+            PacketOut {
+                output_payload: Payload::NotBuffered(packet_data()),
+                port_id: Some(1),
+                apply_actions: flow_mod_actions()
+            }
+        }
+
         fn load_reference(filepath: &str) -> Vec<u8> {
             let mut f = File::open(filepath)
                 .expect("Could not find sample file");
@@ -2571,12 +2580,82 @@ pub mod message {
             }
         }
 
+        #[test]
+        fn test_marshall_packet_out() {
+            let features = Message::PacketOut(packet_out());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/packetout10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_packet_out() {
+            let reference = load_reference(&"test/data/packetout10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::PacketOut(packet) => {
+                    assert_eq!(packet_out(), packet);
+                },
+                _ => {
+                    assert!(false, "Should be a PacketOut message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_marshall_barrier_request() {
+            let features = Message::BarrierRequest;
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/barrierrequest10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_barrier_request() {
+            let reference = load_reference(&"test/data/barrierrequest10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::BarrierRequest => {
+                },
+                _ => {
+                    assert!(false, "Should be a BarrierRequest message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_marshall_barrier_reply() {
+            let features = Message::BarrierReply;
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/barrierreply10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_barrier_reply() {
+            let reference = load_reference(&"test/data/barrierreply10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::BarrierReply => {
+                },
+                _ => {
+                    assert!(false, "Should be a BarrierReply message");
+                }
+            }
+        }
+
         /*
         FlowRemoved(FlowRemoved),
         PortStatus(PortStatus),
-        PacketOut(PacketOut),
-        BarrierRequest,
-        BarrierReply,
         StatsRequest(StatsReq),
         StatsReply(StatsResp)
         */
