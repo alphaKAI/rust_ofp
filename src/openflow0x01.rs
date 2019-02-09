@@ -1838,6 +1838,7 @@ impl PortDesc {
 
 /// What changed about a physical port.
 #[repr(u8)]
+#[derive(Debug, PartialEq)]
 pub enum PortReason {
     PortAdd,
     PortDelete,
@@ -1845,6 +1846,7 @@ pub enum PortReason {
 }
 
 /// A physical port has changed in the datapath.
+#[derive(Debug, PartialEq)]
 pub struct PortStatus {
     pub reason: PortReason,
     pub desc: PortDesc,
@@ -2176,9 +2178,8 @@ pub mod message {
             vec![0xAB; 5]
         }
 
-        fn switch_ports() -> Vec<PortDesc> {
-            let mut vec = vec!();
-            vec.push(PortDesc {
+        fn port_desc() -> PortDesc {
+            PortDesc {
                 port_no: 1,
                 hw_addr: 0xAABBCCDDEEFF,
                 name: "port_1".to_string(),
@@ -2251,7 +2252,12 @@ pub mod message {
                     pause: true,
                     pause_asym: true,
                 }
-            });
+            }
+        }
+
+        fn switch_ports() -> Vec<PortDesc> {
+            let mut vec = vec!();
+            vec.push(port_desc());
 
             vec
         }
@@ -2367,6 +2373,13 @@ pub mod message {
                 output_payload: Payload::NotBuffered(packet_data()),
                 port_id: Some(1),
                 apply_actions: flow_mod_actions()
+            }
+        }
+
+        fn port_status() -> PortStatus {
+            PortStatus {
+                reason: PortReason::PortAdd,
+                desc: port_desc()
             }
         }
 
@@ -2692,9 +2705,33 @@ pub mod message {
             }
         }
 
+        #[test]
+        #[ignore]
+        fn test_marshall_port_status() {
+            let features = Message::PortStatus(port_status());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/portstatus10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_port_status() {
+            let reference = load_reference(&"test/data/portstatus10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::PortStatus(port_status_data) => {
+                    assert_eq!(port_status(), port_status_data)
+                },
+                _ => {
+                    assert!(false, "Should be a PortStatus message");
+                }
+            }
+        }
+
         /*
-        ,
-        PortStatus(PortStatus),
         StatsRequest(StatsReq),
         StatsReply(StatsResp)
         */
