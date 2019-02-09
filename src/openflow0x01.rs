@@ -1604,6 +1604,7 @@ impl MessageType for PacketOut {
 
 /// Reason a flow was removed from a switch
 #[repr(u8)]
+#[derive(Debug, PartialEq)]
 pub enum FlowRemovedReason {
     IdleTimeout,
     HardTimeout,
@@ -1611,6 +1612,7 @@ pub enum FlowRemovedReason {
 }
 
 /// Flow removed (datapath -> controller)
+#[derive(Debug, PartialEq)]
 pub struct FlowRemoved {
     pub pattern: Pattern,
     pub cookie: i64,
@@ -1666,6 +1668,7 @@ impl MessageType for FlowRemoved {
         bytes.write_u32::<BigEndian>(f.duration_sec).unwrap();
         bytes.write_u32::<BigEndian>(f.duration_nsec).unwrap();
         bytes.write_u16::<BigEndian>(Timeout::to_int(f.idle_timeout)).unwrap();
+        write_padding_bytes(bytes, 2);
         bytes.write_u64::<BigEndian>(f.packet_count).unwrap();
         bytes.write_u64::<BigEndian>(f.byte_count).unwrap();
     }
@@ -2331,6 +2334,20 @@ pub mod message {
             }
         }
 
+        fn flow_removed() -> FlowRemoved {
+            FlowRemoved {
+                pattern: flow_mod_pattern(),
+                cookie: 0x1234567887654321,
+                priority: 22,
+                reason: FlowRemovedReason::IdleTimeout,
+                duration_sec: 123,
+                duration_nsec: 123456,
+                idle_timeout: Timeout::ExpiresAfter(60),
+                packet_count: 100,
+                byte_count: 120500
+            }
+        }
+
         fn packet_data() -> Vec<u8> {
             let data: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
             data.to_vec()
@@ -2404,8 +2421,8 @@ pub mod message {
         #[ignore] // TODO marshalling error not implemented
         fn test_marshall_error() {
             let error = Message::Error(
-                            Error::Error(
-                                ErrorType::BadRequest(BadRequest::BadLen), error_vector()));
+                Error::Error(
+                    ErrorType::BadRequest(BadRequest::BadLen), error_vector()));
             let data = Message::marshal(TEST_XID, error);
             let reference = load_reference(&"test/data/error10.data");
 
@@ -2496,8 +2513,7 @@ pub mod message {
 
             verify_header(&header);
             match message {
-                Message::FeaturesReq => {
-                },
+                Message::FeaturesReq => {},
                 _ => {
                     assert!(false, "Should be an Features Request message");
                 }
@@ -2621,8 +2637,7 @@ pub mod message {
 
             verify_header(&header);
             match message {
-                Message::BarrierRequest => {
-                },
+                Message::BarrierRequest => {},
                 _ => {
                     assert!(false, "Should be a BarrierRequest message");
                 }
@@ -2645,23 +2660,45 @@ pub mod message {
 
             verify_header(&header);
             match message {
-                Message::BarrierReply => {
-                },
+                Message::BarrierReply => {},
                 _ => {
                     assert!(false, "Should be a BarrierReply message");
                 }
             }
         }
 
+        #[test]
+        fn test_marshall_flow_removed() {
+            let features = Message::FlowRemoved(flow_removed());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/flowremoved10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        fn test_parse_flow_removed() {
+            let reference = load_reference(&"test/data/flowremoved10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::FlowRemoved(flow_removed_data) => {
+                    assert_eq!(flow_removed(), flow_removed_data)
+                },
+                _ => {
+                    assert!(false, "Should be a FlowRemoved message");
+                }
+            }
+        }
+
         /*
-        FlowRemoved(FlowRemoved),
+        ,
         PortStatus(PortStatus),
         StatsRequest(StatsReq),
         StatsReply(StatsResp)
         */
     }
-
-
 }
 
 mod tests {
