@@ -959,6 +959,7 @@ pub enum OfpQueue {
 
 /// Type of stats request.
 #[repr(u16)]
+#[derive(Debug, PartialEq)]
 pub enum StatsReqType {
     Desc,
     Flow,
@@ -985,6 +986,7 @@ impl StatsReqType {
 }
 
 /// Type of Body for Stats Requests
+#[derive(Debug, PartialEq)]
 pub enum StatsReqBody {
     DescBody,
     FlowStatsBody { // Also used for aggregate stats
@@ -1004,7 +1006,9 @@ pub enum StatsReqBody {
 }
 
 /// Represents stats request from the controller.
+#[derive(Debug, PartialEq)]
 pub struct StatsReq {
+    // TODO we shouldn't need the type, it can be inferred by the body
     pub req_type: StatsReqType,
     pub flags: u16,
     pub body: StatsReqBody
@@ -1106,6 +1110,7 @@ impl MessageType for StatsReq {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct FlowStats {
     pub table_id: u8,
     pub pattern: Pattern,
@@ -1120,6 +1125,7 @@ pub struct FlowStats {
     pub actions: Vec<Action>
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct TransmissionCounter {
     pub rx: u64,
     pub tx: u64
@@ -1134,6 +1140,7 @@ impl TransmissionCounter {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct PortStats {
     pub port_no: u16,
     pub packets: TransmissionCounter,
@@ -1146,6 +1153,7 @@ pub struct PortStats {
     pub collisions: u64
 }
 
+#[derive(Debug, PartialEq)]
 pub struct QueueStats {
     pub port_no: u16,
     pub queue_id: u32,
@@ -1154,6 +1162,7 @@ pub struct QueueStats {
     pub tx_errors: u64
 }
 
+#[derive(Debug, PartialEq)]
 pub struct TableStats {
     pub table_id: u8,
     pub name: String,
@@ -1165,6 +1174,7 @@ pub struct TableStats {
 }
 
 /// Type of Body for Stats Response
+#[derive(Debug, PartialEq)]
 pub enum StatsRespBody {
     DescBody {
         manufacturer_desc: String,
@@ -1193,8 +1203,9 @@ pub enum StatsRespBody {
     VendorBody
 }
 
+#[derive(Debug, PartialEq)]
 pub struct StatsResp {
-    pub req_type: StatsReqType, // TODO not required because of the body enum represeting the type
+    pub req_type: StatsReqType, // TODO not required because of the body enum representing the type
     pub flags: u16,
     pub body: StatsRespBody
 }
@@ -1283,6 +1294,8 @@ impl MessageType for StatsResp {
                         break;
                     }
 
+                    // TODO handle entry_length == 0 broken packets
+
                     let mut flow_data = vec![0; entry_length - 2];
                     bytes.read_exact(&mut flow_data).unwrap();
                     let mut flow = Cursor::new(flow_data);
@@ -1362,7 +1375,7 @@ impl MessageType for StatsResp {
             StatsReqType::Port => {
                 let mut port_stats = Vec::<PortStats>::new();
 
-                while bytes.remaining() > size_of::<OfpStatsRespPortStats>() {
+                while bytes.remaining() >= size_of::<OfpStatsRespPortStats>() {
                     let port_no = bytes.read_u16::<BigEndian>().unwrap();
                     bytes.consume(6);
                     let packets = TransmissionCounter::from_bytes(&mut bytes).unwrap();
@@ -1782,18 +1795,7 @@ impl PortDesc {
             }
             mac_of_bytes(arr)
         };
-        let name = {
-            let mut arr = Vec::with_capacity(16);
-            let mut input: [u8; 16] = [0; 16];
-            bytes.read_exact(&mut input);
-            for i in input.iter() {
-                if *i == 0 {
-                    break;
-                }
-                arr.push(*i);
-            }
-            String::from_utf8(arr).unwrap()
-        };
+        let name = read_fixed_size_string(bytes, 16);
         let config = {
             let d = bytes.read_u32::<BigEndian>().unwrap();
             PortConfig {
@@ -2392,6 +2394,131 @@ pub mod message {
             }
         }
 
+        fn port_stats_request() -> StatsReq {
+            StatsReq {
+                req_type: StatsReqType::Port,
+                flags: 0,
+                body: StatsReqBody::PortBody {
+                    port_no: OfpPort::OFPPAll as u16
+                }
+            }
+        }
+
+        fn port_stats_reply() -> StatsResp {
+            StatsResp {
+                req_type: StatsReqType::Port,
+                flags: 0,
+                body: StatsRespBody::PortBody {
+                    port_stats: port_stats_vec()
+                }
+            }
+        }
+
+        fn port_stats_vec() -> Vec<PortStats> {
+            let mut vec = vec!();
+            vec.push(PortStats {
+                port_no: 1,
+                packets: TransmissionCounter{ rx: 1000, tx: 2000 },
+                bytes: TransmissionCounter{ rx: 536870912, tx: 1073741824 },
+                dropped: TransmissionCounter{ rx: 5, tx: 0},
+                errors: TransmissionCounter{ rx: 0, tx: 0},
+                rx_frame_errors: 1,
+                rx_over_errors: 2,
+                rx_crc_errors: 3,
+                collisions: 4
+            });
+            vec.push(PortStats {
+                port_no: 2,
+                packets: TransmissionCounter{ rx: 0, tx: 0 },
+                bytes: TransmissionCounter{ rx: 0, tx: 0 },
+                dropped: TransmissionCounter{ rx: 0, tx: 0},
+                errors: TransmissionCounter{ rx: 0, tx: 0},
+                rx_frame_errors: 0,
+                rx_over_errors: 0,
+                rx_crc_errors: 0,
+                collisions: 0
+            });
+            vec
+        }
+
+        fn desc_stats_request() -> StatsReq {
+            StatsReq {
+                req_type: StatsReqType::Desc,
+                flags: 0,
+                body: StatsReqBody::DescBody
+            }
+        }
+
+        fn desc_stats_reply() -> StatsResp {
+            StatsResp {
+                req_type: StatsReqType::Desc,
+                flags: 0,
+                body: StatsRespBody::DescBody {
+                    manufacturer_desc: "manufacturer".to_string(),
+                    hardware_desc: "hardware".to_string(),
+                    software_desc: "software".to_string(),
+                    serial_number: "12345".to_string(),
+                    datapath_desc: "dp001".to_string()
+                }
+            }
+        }
+
+        fn flow_stats_request() -> StatsReq {
+            StatsReq {
+                req_type: StatsReqType::Flow,
+                flags: 0,
+                body: StatsReqBody::FlowStatsBody {
+                    pattern: Pattern::match_all(),
+                    table_id: ALL_TABLES,
+                    out_port: OfpPort::OFPPNone as u16
+                }
+            }
+        }
+
+        fn flow_stats_reply() -> StatsResp {
+            StatsResp {
+                req_type: StatsReqType::Flow,
+                flags: 0,
+                body: StatsRespBody::FlowStatsBody {
+                    flow_stats: flow_stats_vec()
+                }
+            }
+        }
+
+        fn flow_stats_vec() -> Vec<FlowStats> {
+            let mut vec = vec!();
+            let mut actions = Vec::new();
+            actions.push(Action::Output(PseudoPort::Controller(0)));
+            vec.push(FlowStats {
+                table_id: 0,
+                pattern: Pattern::match_all(),
+                duration_sec: 120,
+                duration_nsec: 123456789,
+                priority: 33,
+                idle_timeout: 0,
+                hard_timeout: 0,
+                cookie: 0x12345678,
+                packet_count: 5000,
+                byte_count: 640000,
+                actions: actions
+            });
+
+            vec.push(FlowStats {
+                table_id: 0,
+                pattern: Pattern::match_all(),
+                duration_sec: 10,
+                duration_nsec: 0,
+                priority: 65,
+                idle_timeout: 500,
+                hard_timeout: 0,
+                cookie: 0x87654321,
+                packet_count: 10,
+                byte_count: 10000,
+                actions: flow_mod_actions()
+            });
+            vec
+        }
+
         fn load_reference(filepath: &str) -> Vec<u8> {
             let mut f = File::open(filepath)
                 .expect("Could not find sample file");
@@ -2740,10 +2867,135 @@ pub mod message {
             }
         }
 
-        /*
-        StatsRequest(StatsReq),
-        StatsReply(StatsResp)
-        */
+        #[test]
+        fn test_marshall_port_stats_request() {
+            let features = Message::StatsRequest(port_stats_request());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/portstatsrequest10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        #[ignore]
+        fn test_parse_port_stats_request() {
+            let reference = load_reference(&"test/data/portstatsrequest10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::StatsRequest(stats_request_data) => {
+                    assert_eq!(port_stats_request(), stats_request_data)
+                },
+                _ => {
+                    assert!(false, "Should be a Port StatsRequest message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_marshall_desc_stats_request() {
+            let features = Message::StatsRequest(desc_stats_request());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/descstatsrequest10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        #[ignore]
+        fn test_parse_desc_stats_request() {
+            let reference = load_reference(&"test/data/descstatsrequest10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::StatsRequest(stats_request_data) => {
+                    assert_eq!(desc_stats_request(), stats_request_data)
+                },
+                _ => {
+                    assert!(false, "Should be a Desc StatsRequest message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_marshall_flow_stats_request() {
+            // The match-all flow stats request here has some details. It sets all fields
+            // individually to be wildcards but could just set all to 1s. The sample file was
+            // adapted to this strategy but was verified to be valid. There are multiple correct
+            // answers to this particular flow stats request.
+            let features = Message::StatsRequest(flow_stats_request());
+            let data = Message::marshal(TEST_XID, features);
+            let reference = load_reference(&"test/data/flowstatsrequest10.data");
+
+            assert_eq!(reference, data);
+        }
+
+        #[test]
+        #[ignore]
+        fn test_parse_flow_stats_request() {
+            let reference = load_reference(&"test/data/flowstatsrequest10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::StatsRequest(stats_request_data) => {
+                    assert_eq!(flow_stats_request(), stats_request_data)
+                },
+                _ => {
+                    assert!(false, "Should be a Flow StatsRequest message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_parse_port_stats_reply() {
+            let reference = load_reference(&"test/data/portstatsreply10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::StatsReply(stats_reply_data) => {
+                    assert_eq!(port_stats_reply(), stats_reply_data)
+                },
+                _ => {
+                    assert!(false, "Should be a Port StatsReply message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_parse_desc_stats_reply() {
+            let reference = load_reference(&"test/data/descstatsreply10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::StatsReply(stats_reply_data) => {
+                    assert_eq!(desc_stats_reply(), stats_reply_data)
+                },
+                _ => {
+                    assert!(false, "Should be a Desc StatsReply message");
+                }
+            }
+        }
+
+        #[test]
+        fn test_parse_flow_stats_reply() {
+            let reference = load_reference(&"test/data/flowstatsreply10.data");
+            let (header, message) = parse(reference);
+
+            verify_header(&header);
+            match message {
+                Message::StatsReply(stats_reply_data) => {
+                    assert_eq!(flow_stats_reply(), stats_reply_data)
+                },
+                _ => {
+                    assert!(false, "Should be a Flow StatsReply message");
+                }
+            }
+        }
     }
 }
 
