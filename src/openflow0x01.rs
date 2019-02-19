@@ -20,6 +20,27 @@ fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {
     }
 }
 
+// TODO perhaps there is a faster way to do this?
+fn read_fixed_size_string(bytes: &mut Cursor<Vec<u8>>, max_capacity: usize) -> String {
+    let mut arr = Vec::with_capacity(max_capacity);
+    let mut read_count: usize = 0;
+
+    // TODO make this return a Result
+    assert!(bytes.remaining() >= max_capacity);
+    for i in 0..max_capacity {
+        read_count += 1;
+        let next_char = bytes.read_u8().unwrap();
+        if next_char == 0 {
+            break;
+        }
+        arr.push(next_char);
+    }
+
+    bytes.consume(max_capacity - read_count);
+
+    String::from_utf8(arr).unwrap()
+}
+
 /// OpenFlow 1.0 message type codes, used by headers to identify meaning of the rest of a message.
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -1236,23 +1257,11 @@ impl MessageType for StatsResp {
         let flags = bytes.read_u16::<BigEndian>().unwrap();
         let body = match req_type {
             StatsReqType::Desc => {
-                let mut input : [u8; DESC_STR_LENGTH] = [0; DESC_STR_LENGTH];
-                let mut serial_number_input : [u8; SERIAL_NUM_LENGTH] = [0; SERIAL_NUM_LENGTH];
-
-                bytes.read(&mut input);
-                let manufacturer_desc = String::from_utf8(input.to_vec()).unwrap();
-
-                bytes.read(&mut input);
-                let hardware_desc = String::from_utf8(input.to_vec()).unwrap();
-
-                bytes.read(&mut input);
-                let software_desc = String::from_utf8(input.to_vec()).unwrap();
-
-                bytes.read(&mut serial_number_input);
-                let serial_number = String::from_utf8(serial_number_input.to_vec()).unwrap();
-
-                bytes.read(&mut input);
-                let datapath_desc = String::from_utf8(input.to_vec()).unwrap();
+                let manufacturer_desc = read_fixed_size_string(&mut bytes, DESC_STR_LENGTH);
+                let hardware_desc = read_fixed_size_string(&mut bytes, DESC_STR_LENGTH);
+                let software_desc = read_fixed_size_string(&mut bytes, DESC_STR_LENGTH);
+                let serial_number = read_fixed_size_string(&mut bytes, SERIAL_NUM_LENGTH);
+                let datapath_desc = read_fixed_size_string(&mut bytes, DESC_STR_LENGTH);
 
                 StatsRespBody::DescBody {
                     manufacturer_desc,
