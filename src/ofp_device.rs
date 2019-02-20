@@ -37,6 +37,7 @@ pub mod openflow0x01 {
     use std::sync::Arc;
     use std::collections::HashMap;
     use openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats, TableStats, QueueStats };
+    use tokio::io::{ ReadHalf, WriteHalf };
 
     #[derive(Debug)]
     struct DeviceState {
@@ -129,11 +130,9 @@ pub mod openflow0x01 {
 
     pub struct Device {
         state: Arc<Mutex<DeviceState>>,
-        processor: Mutex<MessageProcessor>,
+        processor: Arc<Mutex<MessageProcessor>>,
 
         writer: Mutex<Sender<(u32, Message)>>,
-
-        socket: TcpStream,
     }
 
     impl OfpDevice for Device {
@@ -152,23 +151,22 @@ pub mod openflow0x01 {
 
     impl Device {
         pub fn new(stream: TcpStream, tx: Sender<(DeviceId, Message)>) -> Device {
-            let (writer_tx, writer_rx) = mpsc::channel(WRITING_CHANNEL_SIZE);
-            let writer = OfpMessageWriter::new(stream.try_clone().unwrap(), writer_rx);
-            let state = Arc::new(Mutex::new(DeviceState::new()));
-            let processor = MessageProcessor::new(state.clone(), tx, writer_tx.clone());
+            let (read, write) = stream.split();
 
+            let (writer_tx, writer_rx) = mpsc::channel(WRITING_CHANNEL_SIZE);
+            let writer = OfpMessageWriter::new(write, writer_rx);
+            let state = Arc::new(Mutex::new(DeviceState::new()));
+            let processor = Arc::new(Mutex::new(MessageProcessor::new(state.clone(), tx, writer_tx.clone())));
+
+            let reader = OfpMessageReader::new(read);
             tokio::spawn(writer);
+            tokio::spawn(DeviceFuture::new(processor.clone(), reader));
 
             Device {
                 state,
                 writer: Mutex::new(writer_tx),
-                socket: stream,
-                processor: Mutex::new(processor)
+                processor
             }
-        }
-
-        fn create_reader(&self) -> OfpMessageReader {
-            OfpMessageReader::new(self.socket.try_clone().unwrap())
         }
 
         pub fn has_device_id(&self, device_id: &DeviceId) -> bool {
@@ -183,15 +181,15 @@ pub mod openflow0x01 {
     }
 
     struct DeviceFuture {
-        device: Arc<Device>,
+        processor: Arc<Mutex<MessageProcessor>>,
         reader: OfpMessageReader,
     }
 
     impl DeviceFuture {
-        fn new(device: Arc<Device>) -> DeviceFuture {
+        fn new(processor: Arc<Mutex<MessageProcessor>>, reader: OfpMessageReader) -> DeviceFuture {
             DeviceFuture {
-                reader: device.create_reader(),
-                device,
+                reader,
+                processor,
             }
         }
     }
@@ -207,7 +205,8 @@ pub mod openflow0x01 {
                 let res = self.reader.poll();
                 match res {
                     Ok(Async::Ready(Some((header, message)))) => {
-                        self.device.process_message(header.xid(), message);
+                        let mut processor = self.processor.lock().unwrap();
+                        processor.process_message(header.xid(), message);
                     },
                     Ok(Async::NotReady) => {
                         return Ok(Async::NotReady)
@@ -230,12 +229,12 @@ pub mod openflow0x01 {
 
     #[derive(Debug)]
     struct OfpMessageReader {
-        socket: TcpStream,
+        socket: ReadHalf<TcpStream>,
         rd: BytesMut
     }
 
     impl OfpMessageReader {
-        pub fn new(socket: TcpStream) -> Self {
+        pub fn new(socket: ReadHalf<TcpStream>) -> Self {
             OfpMessageReader {
                 socket,
                 rd: BytesMut::new(),
@@ -269,7 +268,7 @@ pub mod openflow0x01 {
             self.rd.reserve(OfpHeader::size());
 
             // Read data into the buffer.
-            let n = try_ready!(self.socket.read_buf(&mut self.rd));
+            let _n = try_ready!(self.socket.read_buf(&mut self.rd));
             if self.have_header() {
                 Ok(Async::Ready(()))
             } else {
@@ -338,13 +337,13 @@ pub mod openflow0x01 {
     }
 
     struct OfpMessageWriter {
-        socket: TcpStream,
+        socket:  WriteHalf<TcpStream>,
         rx: Receiver<(u32, Message)>,
         message: Option<Vec<u8>>
     }
 
     impl OfpMessageWriter {
-        fn new(socket: TcpStream, rx: Receiver<(u32, Message)>) -> OfpMessageWriter {
+        fn new(socket: WriteHalf<TcpStream>, rx: Receiver<(u32, Message)>) -> OfpMessageWriter {
             OfpMessageWriter {
                 socket,
                 rx,
@@ -568,16 +567,11 @@ pub mod openflow0x01 {
         pub fn register_device(&self, stream: TcpStream) {
             let device = self.create_device(stream);
             device.send_message(0, Message::Hello);
-            self.start_reading_messages(device);
         }
 
         pub fn register_app(&self, app: Box<DeviceControllerApp + Send + Sync>) {
             let mut apps = self.apps.lock().unwrap();
             apps.register_app(app);
-        }
-
-        fn start_reading_messages(&self, device: Arc<Device>) {
-            tokio::spawn(DeviceFuture::new(device));
         }
 
         fn handle_event_internally(&self, event: &DeviceControllerEvent) {
@@ -641,9 +635,6 @@ pub mod openflow0x01 {
                 },
                 StatsRespBody::VendorBody => {
                 },
-                _ => {
-                    warn!("Unexpected stats body type received");
-                }
             }
         }
 

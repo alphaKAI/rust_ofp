@@ -16,7 +16,7 @@ pub const ALL_TABLES: u8 = 0xff;
 
 fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {
     for _ in 0..count {
-        bytes.write_u8(0);
+        bytes.write_u8(0).unwrap();
     }
 }
 
@@ -27,7 +27,7 @@ fn read_fixed_size_string(bytes: &mut Cursor<Vec<u8>>, max_capacity: usize) -> S
 
     // TODO make this return a Result
     assert!(bytes.remaining() >= max_capacity);
-    for i in 0..max_capacity {
+    for _i in 0..max_capacity {
         read_count += 1;
         let next_char = bytes.read_u8().unwrap();
         if next_char == 0 {
@@ -1230,8 +1230,6 @@ struct OfpStatsRespQueueStats(u16, [u8; 2], u32, u64, u64, u64);
 struct OfpStatsRespPortStats(u16, [u8; 6], [u64; 2],
                              [u64; 2], [u64; 2], [u64; 2],
                              u64, u64, u64, u64);
-#[repr(packed)]
-struct OfpStatsRespQueueBody(u16, [u8; 2], u32);
 
 impl FlowStats {
     fn size_of(stats : &FlowStats) -> usize {
@@ -1556,7 +1554,7 @@ impl MessageType for PacketIn {
         bytes.write_u16::<BigEndian>(pi.total_len).unwrap();
         bytes.write_u16::<BigEndian>(pi.port).unwrap();
         bytes.write_u8(pi.reason as u8).unwrap();
-        bytes.write_u8(0); // Padding
+        bytes.write_u8(0).unwrap(); // Padding
         Payload::marshal(pi.input_payload, bytes)
     }
 }
@@ -2174,6 +2172,7 @@ pub mod message {
         }
     }
 
+    #[cfg(test)]
     mod tests {
         use super::*;
         use std::fs::File;
@@ -2999,6 +2998,7 @@ pub mod message {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

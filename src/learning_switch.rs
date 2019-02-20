@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use rust_ofp::openflow0x01::{Action, PacketIn, PacketOut, Pattern, PseudoPort, SwitchFeatures};
+use rust_ofp::openflow0x01::{Action, PacketIn, PacketOut, Pattern, PseudoPort};
 use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
 use ofp_device::openflow0x01::{DeviceControllerApp, DeviceControllerEvent};
 use ofp_device::openflow0x01::DeviceId;
@@ -77,10 +77,6 @@ impl LearningSwitch {
     pub fn new(controller: Arc<DeviceController>) -> LearningSwitch {
         LearningSwitch { known_hosts: HashMap::new(), controller }
     }
-
-    fn switch_connected(&mut self, _: u64, _: SwitchFeatures) {}
-
-    fn switch_disconnected(&mut self, _: u64) {}
 
     fn packet_in(&mut self, sw: &DeviceId, pkt: &PacketIn) {
         self.learning_packet_in(&pkt);

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use tokio::prelude::*;
 use tokio::timer::Interval;
 
@@ -7,7 +5,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ofp_device::openflow0x01::{DeviceControllerApp, DeviceControllerEvent, DeviceId };
-use ofp_device::OfpDevice;
 use openflow0x01::message::Message;
 use openflow0x01::{ StatsReq, StatsReqType, StatsReqBody, OfpPort, OfpQueue, PortStats, FlowStats,
                     TableStats, QueueStats, Pattern, ALL_TABLES };
@@ -167,7 +164,7 @@ impl DeviceControllerApp for StatsProbing {
         info!("Starting app");
         let controller = self.controller.clone();
         let task = Interval::new(Instant::now(), Duration::from_secs(10))
-            .for_each(move |instant| {
+            .for_each(move |_instant| {
                 info!("Requesting stats");
                 request_stats(controller.clone());
                 Ok(())
