@@ -2543,7 +2543,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_hello() {
+        fn test_marshal_hello() {
             let hello = Message::Hello;
             let data = Message::marshal(TEST_XID, hello);
             let reference = load_reference(&"test/data/hello10.data");
@@ -2566,8 +2566,8 @@ pub mod message {
         }
 
         #[test]
-        #[ignore] // TODO marshalling error not implemented
-        fn test_marshall_error() {
+        #[ignore] // TODO marshaling error not implemented
+        fn test_marshal_error() {
             let error = Message::Error(
                 Error::Error(
                     ErrorType::BadRequest(BadRequest::BadLen), error_vector()));
@@ -2595,7 +2595,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_echo_request() {
+        fn test_marshal_echo_request() {
             let echo = Message::EchoRequest(echo_vector());
             let data = Message::marshal(TEST_XID, echo);
             let reference = load_reference(&"test/data/echo10.data");
@@ -2620,7 +2620,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_echo_reply() {
+        fn test_marshal_echo_reply() {
             let echo = Message::EchoReply(echo_vector());
             let data = Message::marshal(TEST_XID, echo);
             let reference = load_reference(&"test/data/echo_reply10.data");
@@ -2645,7 +2645,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_features_request() {
+        fn test_marshal_features_request() {
             let echo = Message::FeaturesReq;
             let data = Message::marshal(TEST_XID, echo);
             let reference = load_reference(&"test/data/features_request10.data");
@@ -2670,7 +2670,7 @@ pub mod message {
 
         #[test]
         #[ignore] // Not implemented
-        fn test_marshall_features_reply() {
+        fn test_marshal_features_reply() {
             let features = Message::FeaturesReply(switch_features());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/features_reply10.data");
@@ -2695,7 +2695,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_flow_mod() {
+        fn test_marshal_flow_mod() {
             let features = Message::FlowMod(flow_mod());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/flowmod10.data");
@@ -2720,7 +2720,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_packet_in() {
+        fn test_marshal_packet_in() {
             let features = Message::PacketIn(packet_in());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/packetin10.data");
@@ -2745,7 +2745,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_packet_out() {
+        fn test_marshal_packet_out() {
             let features = Message::PacketOut(packet_out());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/packetout10.data");
@@ -2770,7 +2770,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_barrier_request() {
+        fn test_marshal_barrier_request() {
             let features = Message::BarrierRequest;
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/barrierrequest10.data");
@@ -2793,7 +2793,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_barrier_reply() {
+        fn test_marshal_barrier_reply() {
             let features = Message::BarrierReply;
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/barrierreply10.data");
@@ -2816,7 +2816,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_flow_removed() {
+        fn test_marshal_flow_removed() {
             let features = Message::FlowRemoved(flow_removed());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/flowremoved10.data");
@@ -2842,7 +2842,7 @@ pub mod message {
 
         #[test]
         #[ignore]
-        fn test_marshall_port_status() {
+        fn test_marshal_port_status() {
             let features = Message::PortStatus(port_status());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/portstatus10.data");
@@ -2867,7 +2867,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_port_stats_request() {
+        fn test_marshal_port_stats_request() {
             let features = Message::StatsRequest(port_stats_request());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/portstatsrequest10.data");
@@ -2893,7 +2893,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_desc_stats_request() {
+        fn test_marshal_desc_stats_request() {
             let features = Message::StatsRequest(desc_stats_request());
             let data = Message::marshal(TEST_XID, features);
             let reference = load_reference(&"test/data/descstatsrequest10.data");
@@ -2919,7 +2919,7 @@ pub mod message {
         }
 
         #[test]
-        fn test_marshall_flow_stats_request() {
+        fn test_marshal_flow_stats_request() {
             // The match-all flow stats request here has some details. It sets all fields
             // individually to be wildcards but could just set all to 1s. The sample file was
             // adapted to this strategy but was verified to be valid. There are multiple correct
