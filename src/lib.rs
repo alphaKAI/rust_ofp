@@ -11,6 +11,11 @@ extern crate bytes;
 extern crate log;
 extern crate log4rs;
 
+extern crate failure;
+
+#[macro_use]
+extern crate failure_derive;
+
 pub mod apps;
 pub mod learning_switch;
 

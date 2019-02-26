@@ -1,4 +1,4 @@
-use rust_ofp::ofp_message::OfpMessage;
+use rust_ofp::ofp_message::{ OfpMessage, OfpParsingError };
 
 const WRITING_CHANNEL_SIZE: usize = 1000;
 
@@ -299,20 +299,20 @@ pub mod openflow0x01 {
             return (len_1 << 8) + len_2
         }
 
-        fn parse_message(&mut self) -> io::Result<(OfpHeader, Message)> {
+        fn parse_message(&mut self) -> Result<(OfpHeader, Message), OfpParsingError> {
             let body_length = self.get_header_length() - OfpHeader::size();
             let header_data = self.rd.split_to(OfpHeader::size());
             let data = self.rd.split_to(body_length);
 
             let header = OfpHeader::parse(&header_data);
-            let (_xid, body) = Message::parse(&header, &data);
+            let (_xid, body) = Message::parse(&header, &data)?;
             Ok((header, body))
         }
     }
 
     impl Stream for OfpMessageReader {
         type Item = (OfpHeader, Message);
-        type Error = io::Error;
+        type Error = OfpParsingError;
 
         fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
             let res = self.read_message_data();

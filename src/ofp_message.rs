@@ -1,4 +1,23 @@
 use ofp_header::OfpHeader;
+use std::io;
+
+#[derive(Debug, Fail)]
+pub enum OfpParsingError {
+    #[fail(display = "IO Error: {}", error)]
+    IoError {
+        error: io::Error,
+    },
+    #[fail(display = "Unexpected value '{}' at field '{}' of '{}'", value, field, message)]
+    UnexpectedValueError {
+        value: String,
+        field: String,
+        message: String,
+    },
+    #[fail(display = "Parsing error: {}", message)]
+    ParsingError {
+        message: String,
+    }
+}
 
 /// OpenFlow Message
 ///
@@ -12,5 +31,5 @@ pub trait OfpMessage {
     fn marshal(u32, Self) -> Vec<u8>;
     /// Returns a pair `(u32, OfpMessage)` of the transaction id and OpenFlow message parsed from
     /// the given OpenFlow header `header`, and buffer `buf`.
-    fn parse(&OfpHeader, &[u8]) -> (u32, Self);
+    fn parse(&OfpHeader, &[u8]) -> Result<(u32, Self), OfpParsingError> where Self: Sized;
 }
