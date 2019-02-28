@@ -178,6 +178,11 @@ pub mod openflow0x01 {
             let state = self.state.lock().unwrap();
             state.get_device_id()
         }
+
+        pub fn get_writer(&self) -> Sender<(u32, Message)> {
+            let writer = self.writer.lock().unwrap();
+            writer.clone()
+        }
     }
 
     struct DeviceFuture {
@@ -421,8 +426,8 @@ pub mod openflow0x01 {
     }
 
     struct Devices {
-        unknown_devices: Vec<Arc<Device>>,
-        devices: HashMap<DeviceId, Arc<Device>>
+        unknown_devices: Vec<Device>,
+        devices: HashMap<DeviceId, Device>
     }
 
     impl Devices {
@@ -433,7 +438,7 @@ pub mod openflow0x01 {
             }
         }
 
-        fn add_device(&mut self, device: Arc<Device>) {
+        fn add_device(&mut self, device: Device) {
             self.unknown_devices.push(device);
         }
 
@@ -473,7 +478,7 @@ pub mod openflow0x01 {
             match event {
                 DeviceControllerEvent::SwitchConnected(device_id) => {
                     self.handle_switch_connected(device_id.clone());
-                }
+                },
                 _ => {
                 }
             }
@@ -553,11 +558,12 @@ pub mod openflow0x01 {
             self.apps.lock().unwrap().start();
         }
 
-        fn create_device(&self, stream: TcpStream) -> Arc<Device> {
+        fn create_device(&self, stream: TcpStream) -> Sender<(u32, Message)> {
             let mut devices = self.devices.lock().unwrap();
-            let device = Arc::new(Device::new(stream, self.message_tx.clone()));
-            devices.add_device(device.clone());
-            device
+            let device = Device::new(stream, self.message_tx.clone());
+            let writer = device.get_writer();
+            devices.add_device(device);
+            writer
         }
 
         pub fn list_all_devices(&self) -> Vec<DeviceId> {
@@ -565,8 +571,9 @@ pub mod openflow0x01 {
         }
 
         pub fn register_device(&self, stream: TcpStream) {
-            let device = self.create_device(stream);
-            device.send_message(0, Message::Hello);
+            let mut device_writer = self.create_device(stream);
+            // TODO handle a future properly here to ensure Hello is sent
+            device_writer.try_send((0, Message::Hello)).unwrap();
         }
 
         pub fn register_app(&self, app: Box<DeviceControllerApp + Send + Sync>) {
