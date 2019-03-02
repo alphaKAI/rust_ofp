@@ -21,6 +21,7 @@ pub mod learning_switch;
 
 mod bits;
 pub mod ofp_device;
+pub mod ofp_controller;
 pub mod ofp_header;
 pub mod ofp_message;
 pub mod openflow0x01;

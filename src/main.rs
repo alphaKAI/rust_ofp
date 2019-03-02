@@ -12,7 +12,7 @@ use tokio::prelude::*;
 extern crate rust_ofp;
 use rust_ofp::apps::StatsProbing;
 use rust_ofp::learning_switch::LearningSwitchApp;
-use rust_ofp::ofp_device::openflow0x01::{DeviceController, DeviceControllerFuture};
+use rust_ofp::ofp_controller::{DeviceController, DeviceControllerFuture};
 use std::sync::Arc;
 
 

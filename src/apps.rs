@@ -4,11 +4,11 @@ use tokio::timer::Interval;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ofp_device::openflow0x01::{DeviceControllerApp, DeviceControllerEvent, DeviceId };
+use ofp_device::DeviceId;
+use ofp_controller::{ DeviceControllerApp, DeviceControllerEvent, DeviceController };
 use openflow0x01::message::Message;
 use openflow0x01::{ StatsReq, StatsReqType, StatsReqBody, OfpPort, OfpQueue, PortStats, FlowStats,
                     TableStats, QueueStats, Pattern, ALL_TABLES };
-use ofp_device::openflow0x01::DeviceController;
 
 fn request_stats(controller: Arc<DeviceController>) {
     controller.list_all_devices().iter().for_each(
