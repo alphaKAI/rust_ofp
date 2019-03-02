@@ -4,6 +4,7 @@ use tokio::prelude::*;
 use futures::sync::mpsc;
 use futures::sync::mpsc::{Receiver, Sender};
 
+use ofp_header::Xid;
 use rust_ofp::ofp_device::openflow0x01::Device;
 use rust_ofp::ofp_device::{ OfpDevice, DeviceId };
 use rust_ofp::openflow0x01::message::Message;
@@ -71,7 +72,7 @@ impl Devices {
         }
     }
 
-    fn send_message(&self, device_id: &DeviceId, xid: u32, message: Message) {
+    fn send_message(&self, device_id: &DeviceId, xid: Xid, message: Message) {
         let device = self.devices.get(device_id);
         match device {
             Some(d) => d.send_message(xid, message),
@@ -145,7 +146,7 @@ impl DeviceController {
         self.apps.lock().unwrap().start();
     }
 
-    fn create_device(&self, stream: TcpStream) -> Sender<(u32, Message)> {
+    fn create_device(&self, stream: TcpStream) -> Sender<(Xid, Message)> {
         let mut devices = self.devices.lock().unwrap();
         let device = Device::new(stream, self.message_tx.clone());
         let writer = device.get_writer();
@@ -179,7 +180,7 @@ impl DeviceController {
         apps.post(event);
     }
 
-    pub fn send_message(&self, device_id: &DeviceId, xid: u32, message: Message) {
+    pub fn send_message(&self, device_id: &DeviceId, xid: Xid, message: Message) {
         let devices = self.devices.lock().unwrap();
         devices.send_message(device_id, xid, message);
     }

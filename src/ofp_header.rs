@@ -6,6 +6,8 @@ use rust_ofp::openflow0x01::MsgCode;
 
 pub const OFP_HEADER_LENGTH: usize = 8;
 
+pub type Xid = u32;
+
 /// OpenFlow Header
 ///
 /// The first fields of every OpenFlow message, no matter the protocol version.

@@ -1,7 +1,7 @@
 use std::fmt;
 
 use rust_ofp::ofp_message::{ OfpMessage, OfpParsingError };
-use ofp_header::OfpHeader;
+use ofp_header::{ OfpHeader, Xid };
 
 const WRITING_CHANNEL_SIZE: usize = 1000;
 const MAXIMUM_SUPPORTED_VERSION: u8 = 1;
@@ -77,13 +77,13 @@ pub mod openflow0x01 {
     struct MessageProcessor {
         state: Arc<Mutex<DeviceState>>,
         tx: Sender<(DeviceId, Message)>,
-        writer: Sender<(u32, Message)> // TODO define a xid type
+        writer: Sender<(Xid, Message)>
     }
 
     impl MessageProcessor {
         fn new(state: Arc<Mutex<DeviceState>>,
                tx: Sender<(DeviceId, Message)>,
-               writer: Sender<(u32, Message)>) -> MessageProcessor {
+               writer: Sender<(Xid, Message)>) -> MessageProcessor {
             MessageProcessor {
                 state,
                 tx,
@@ -91,7 +91,7 @@ pub mod openflow0x01 {
             }
         }
 
-        fn send_message(&mut self, xid: u32, message: Message) {
+        fn send_message(&mut self, xid: Xid, message: Message) {
             self.writer.try_send((xid, message)).unwrap();
         }
 
@@ -146,13 +146,13 @@ pub mod openflow0x01 {
         state: Arc<Mutex<DeviceState>>,
         processor: Arc<Mutex<MessageProcessor>>,
 
-        writer: Mutex<Sender<(u32, Message)>>,
+        writer: Mutex<Sender<(Xid, Message)>>,
     }
 
     impl OfpDevice for Device {
         type Message = Message;
 
-        fn send_message(&self, xid: u32, message: Message) {
+        fn send_message(&self, xid: Xid, message: Message) {
             let mut writer = self.writer.lock().unwrap();
             writer.try_send((xid, message)).unwrap(); // TODO handle errors
         }
@@ -193,7 +193,7 @@ pub mod openflow0x01 {
             state.get_device_id()
         }
 
-        pub fn get_writer(&self) -> Sender<(u32, Message)> {
+        pub fn get_writer(&self) -> Sender<(Xid, Message)> {
             let writer = self.writer.lock().unwrap();
             writer.clone()
         }
@@ -357,12 +357,12 @@ pub mod openflow0x01 {
 
     struct OfpMessageWriter {
         socket:  WriteHalf<TcpStream>,
-        rx: Receiver<(u32, Message)>,
+        rx: Receiver<(Xid, Message)>,
         message: Option<Vec<u8>>
     }
 
     impl OfpMessageWriter {
-        fn new(socket: WriteHalf<TcpStream>, rx: Receiver<(u32, Message)>) -> OfpMessageWriter {
+        fn new(socket: WriteHalf<TcpStream>, rx: Receiver<(Xid, Message)>) -> OfpMessageWriter {
             OfpMessageWriter {
                 socket,
                 rx,
