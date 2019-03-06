@@ -3,6 +3,8 @@ use std::fmt;
 use rust_ofp::ofp_message::{ OfpMessage, OfpParsingError };
 use ofp_header::{ OfpHeader, Xid };
 
+use rust_ofp::openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats, TableStats, QueueStats };
+
 const WRITING_CHANNEL_SIZE: usize = 1000;
 const MAXIMUM_SUPPORTED_VERSION: u8 = 1;
 
@@ -30,6 +32,44 @@ impl fmt::Display for DeviceId {
     }
 }
 
+trait MessageProcessor {
+
+}
+
+#[derive(Debug)]
+struct DeviceState {
+    switch_id: Option<DeviceId>,
+}
+
+impl DeviceState {
+    fn new() -> DeviceState {
+        DeviceState {
+            switch_id: None,
+        }
+    }
+
+    pub fn has_device_id(&self, device_id: &DeviceId) -> bool {
+        match &self.switch_id {
+            Some(ref id) => id == device_id,
+            None => false
+        }
+    }
+
+    pub fn get_device_id(&self) -> Option<DeviceId> {
+        return self.switch_id.clone();
+    }
+}
+
+pub enum DeviceEvent {
+    SwitchConnected(DeviceId),
+    PortStats(DeviceId, Vec<PortStats>),
+    FlowStats(DeviceId, Vec<FlowStats>),
+    TableStats(DeviceId, Vec<TableStats>),
+    QueueStats(DeviceId, Vec<QueueStats>),
+    AggregateStats(DeviceId, u64, u64, u32),
+    PacketIn(DeviceId, PacketIn)
+}
+
 pub mod openflow0x01 {
     use super::*;
 
@@ -50,39 +90,15 @@ pub mod openflow0x01 {
     use tokio::io::{ ReadHalf, WriteHalf };
     use std::cmp::min;
 
-    #[derive(Debug)]
-    struct DeviceState {
-        switch_id: Option<DeviceId>,
-    }
-
-    impl DeviceState {
-        fn new() -> DeviceState {
-            DeviceState {
-                switch_id: None,
-            }
-        }
-
-        pub fn has_device_id(&self, device_id: &DeviceId) -> bool {
-            match &self.switch_id {
-                Some(ref id) => id == device_id,
-                None => false
-            }
-        }
-
-        pub fn get_device_id(&self) -> Option<DeviceId> {
-            return self.switch_id.clone();
-        }
-    }
-
     struct MessageProcessor {
         state: Arc<Mutex<DeviceState>>,
-        tx: Sender<(DeviceId, Message)>,
+        tx: Sender<DeviceEvent>,
         writer: Sender<(Xid, Message)>
     }
 
     impl MessageProcessor {
         fn new(state: Arc<Mutex<DeviceState>>,
-               tx: Sender<(DeviceId, Message)>,
+               tx: Sender<DeviceEvent>,
                writer: Sender<(Xid, Message)>) -> MessageProcessor {
             MessageProcessor {
                 state,
@@ -96,7 +112,9 @@ pub mod openflow0x01 {
         }
 
         fn process_message(&mut self, header: OfpHeader, message: Message) {
-            match &message {
+            let mut send_to_controller = None;
+
+            match message {
                 Message::Hello => {
                     let version = min(header.version(), MAXIMUM_SUPPORTED_VERSION);
                     info!("Received Hello message with OF version {}, using version {}",
@@ -116,11 +134,21 @@ pub mod openflow0x01 {
                         panic!("Switch connection already received.")
                     }
 
-                    state.switch_id = Some(DeviceId(feats.datapath_id));
-                }
+                    let switch_id = DeviceId(feats.datapath_id);
+                    state.switch_id = Some(switch_id.clone());
+                    send_to_controller = Some(DeviceEvent::SwitchConnected(switch_id));
+                },
+                Message::PacketIn(pkt) => {
+                    let mut state = self.state.lock().unwrap();
+                    let device_id = state.get_device_id().unwrap();
+                    send_to_controller = Some(DeviceEvent::PacketIn(device_id, pkt));
+                },
+                Message::StatsReply(stats) => {
+                    let mut state = self.state.lock().unwrap();
+                    let device_id = state.get_device_id().unwrap();
+                    send_to_controller = self.handle_stats(device_id, stats);
+                },
                 Message::FlowMod(_) |
-                Message::PacketIn(_) |
-                Message::StatsReply(_) |
                 Message::FlowRemoved(_) |
                 Message::PortStatus(_) |
                 Message::PacketOut(_) |
@@ -129,15 +157,39 @@ pub mod openflow0x01 {
                 Message::StatsRequest(_) => (),
             }
 
-            // TODO do we need to lock every time only for reading? There might be a better way.
-            let state = self.state.lock().unwrap();
-            match state.switch_id {
-                Some(ref switch_id) => {
-                    self.tx.try_send((switch_id.clone(), message)).unwrap();
+            match send_to_controller {
+                Some(event) => {
+                    self.tx.try_send(event).unwrap();
                 },
-                None => {
-                    // TODO log?
-                }
+                None => {}
+            }
+        }
+
+        fn handle_stats(&self, device_id: DeviceId, stats: StatsResp) -> Option<DeviceEvent> {
+            match stats.body {
+                StatsRespBody::DescBody{ .. } => {
+                    None
+                },
+                StatsRespBody::PortBody{ port_stats } => {
+                    Some(DeviceEvent::PortStats(device_id, port_stats))
+                },
+                StatsRespBody::TableBody{ table_stats } => {
+                    Some(DeviceEvent::TableStats(device_id, table_stats))
+                },
+                StatsRespBody::AggregateStatsBody{ packet_count, byte_count, flow_count } => {
+                    // TODO improve this. Need to track the request to make the response make
+                    // sense.
+                    Some(DeviceEvent::AggregateStats(device_id, packet_count, byte_count, flow_count))
+                },
+                StatsRespBody::FlowStatsBody{ flow_stats } => {
+                    Some(DeviceEvent::FlowStats(device_id, flow_stats))
+                },
+                StatsRespBody::QueueBody{ queue_stats } => {
+                    Some(DeviceEvent::QueueStats(device_id, queue_stats))
+                },
+                StatsRespBody::VendorBody => {
+                    None
+                },
             }
         }
     }
@@ -164,7 +216,7 @@ pub mod openflow0x01 {
     }
 
     impl Device {
-        pub fn new(stream: TcpStream, tx: Sender<(DeviceId, Message)>) -> Device {
+        pub fn new(stream: TcpStream, tx: Sender<DeviceEvent>) -> Device {
             let (read, write) = stream.split();
 
             let (writer_tx, writer_rx) = mpsc::channel(WRITING_CHANNEL_SIZE);

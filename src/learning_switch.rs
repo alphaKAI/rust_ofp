@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use rust_ofp::openflow0x01::{Action, PacketIn, PacketOut, Pattern, PseudoPort};
 use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
-use ofp_controller::{DeviceControllerApp, DeviceControllerEvent, DeviceController};
-use ofp_device::DeviceId;
+use ofp_controller::{DeviceControllerApp, DeviceController};
+use ofp_device::{ DeviceId, DeviceEvent };
 use std::sync::Arc;
 use openflow0x01::message::Message;
 use openflow0x01::FlowMod;
@@ -104,9 +104,9 @@ impl LearningSwitchApp {
 }
 
 impl DeviceControllerApp for LearningSwitchApp {
-    fn event(&mut self, event: Arc<DeviceControllerEvent>) {
+    fn event(&mut self, event: Arc<DeviceEvent>) {
         match *event {
-            DeviceControllerEvent::PacketIn(ref device_id, ref packet) => {
+            DeviceEvent::PacketIn(ref device_id, ref packet) => {
                 self.switch.packet_in(device_id, packet);
             },
             _ => {}

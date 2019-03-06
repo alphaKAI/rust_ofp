@@ -4,8 +4,8 @@ use tokio::timer::Interval;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ofp_device::DeviceId;
-use ofp_controller::{ DeviceControllerApp, DeviceControllerEvent, DeviceController };
+use ofp_device::{ DeviceId, DeviceEvent };
+use ofp_controller::{DeviceControllerApp, DeviceController };
 use openflow0x01::message::Message;
 use openflow0x01::{ StatsReq, StatsReqType, StatsReqBody, OfpPort, OfpQueue, PortStats, FlowStats,
                     TableStats, QueueStats, Pattern, ALL_TABLES };
@@ -139,21 +139,21 @@ impl StatsProbing {
 }
 
 impl DeviceControllerApp for StatsProbing {
-    fn event(&mut self, event: Arc<DeviceControllerEvent>) {
+    fn event(&mut self, event: Arc<DeviceEvent>) {
         match *event {
-            DeviceControllerEvent::PortStats(ref device_id, ref port_stats) => {
+            DeviceEvent::PortStats(ref device_id, ref port_stats) => {
                 self.print_port_stats(device_id, port_stats);
             },
-            DeviceControllerEvent::FlowStats(ref device_id, ref flow_stats) => {
+            DeviceEvent::FlowStats(ref device_id, ref flow_stats) => {
                 self.print_flow_stats(device_id, flow_stats);
             },
-            DeviceControllerEvent::QueueStats(ref device_id, ref queue_stats) => {
+            DeviceEvent::QueueStats(ref device_id, ref queue_stats) => {
                 self.print_queue_stats(device_id, queue_stats);
             },
-            DeviceControllerEvent::TableStats(ref device_id, ref table_stats) => {
+            DeviceEvent::TableStats(ref device_id, ref table_stats) => {
                 self.print_table_stats(device_id, table_stats);
             },
-            DeviceControllerEvent::AggregateStats(ref device_id, ref packets, ref bytes, ref flows) => {
+            DeviceEvent::AggregateStats(ref device_id, ref packets, ref bytes, ref flows) => {
                 self.print_aggregated_stats(device_id, packets, bytes, flows);
             }
             _ => {}

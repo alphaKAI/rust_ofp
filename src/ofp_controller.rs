@@ -6,12 +6,11 @@ use futures::sync::mpsc::{Receiver, Sender};
 
 use ofp_header::Xid;
 use rust_ofp::ofp_device::openflow0x01::Device;
-use rust_ofp::ofp_device::{ OfpDevice, DeviceId };
+use rust_ofp::ofp_device::{ OfpDevice, DeviceId, DeviceEvent };
 use rust_ofp::openflow0x01::message::Message;
 use std::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
-use openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats, TableStats, QueueStats };
 
 struct Devices {
     unknown_devices: Vec<Device>,
@@ -62,9 +61,9 @@ impl Devices {
         }
     }
 
-    pub fn event(&mut self, event: &DeviceControllerEvent) {
+    pub fn event(&mut self, event: &DeviceEvent) {
         match event {
-            DeviceControllerEvent::SwitchConnected(device_id) => {
+            DeviceEvent::SwitchConnected(device_id) => {
                 self.handle_switch_connected(device_id.clone());
             },
             _ => {
@@ -84,7 +83,7 @@ impl Devices {
 }
 
 pub trait DeviceControllerApp {
-    fn event(&mut self, event: Arc<DeviceControllerEvent>);
+    fn event(&mut self, event: Arc<DeviceEvent>);
 
     fn start(&mut self) {
         // Default implementation is empty
@@ -108,7 +107,7 @@ impl DeviceControllerApps {
         }
     }
 
-    fn post(&mut self, event: DeviceControllerEvent) {
+    fn post(&mut self, event: DeviceEvent) {
         let event = Arc::new(event);
 
         for app in &mut self.apps {
@@ -124,8 +123,8 @@ impl DeviceControllerApps {
 
 pub struct DeviceController {
     devices: Mutex<Devices>,
-    message_rx: Mutex<Receiver<(DeviceId, Message)>>,
-    message_tx: Sender<(DeviceId, Message)>,
+    device_event_rx: Mutex<Receiver<DeviceEvent>>,
+    device_event_tx: Sender<DeviceEvent>,
 
     apps: Mutex<DeviceControllerApps>
 }
@@ -136,8 +135,8 @@ impl DeviceController {
         let (tx, rx) = mpsc::channel(MESSAGES_CHANNEL_BUFFER);
         DeviceController {
             devices: Mutex::new(Devices::new()),
-            message_rx: Mutex::new(rx),
-            message_tx: tx,
+            device_event_rx: Mutex::new(rx),
+            device_event_tx: tx,
             apps: Mutex::new(DeviceControllerApps::new())
         }
     }
@@ -148,7 +147,7 @@ impl DeviceController {
 
     fn create_device(&self, stream: TcpStream) -> Sender<(Xid, Message)> {
         let mut devices = self.devices.lock().unwrap();
-        let device = Device::new(stream, self.message_tx.clone());
+        let device = Device::new(stream, self.device_event_tx.clone());
         let writer = device.get_writer();
         devices.add_device(device);
         writer
@@ -169,12 +168,12 @@ impl DeviceController {
         apps.register_app(app);
     }
 
-    fn handle_event_internally(&self, event: &DeviceControllerEvent) {
+    fn handle_event_internally(&self, event: &DeviceEvent) {
         let mut devices = self.devices.lock().unwrap();
         devices.event(event);
     }
 
-    fn post(&self, event: DeviceControllerEvent) {
+    fn post(&self, event: DeviceEvent) {
         self.handle_event_internally(&event);
         let mut apps = self.apps.lock().unwrap();
         apps.post(event);
@@ -184,16 +183,6 @@ impl DeviceController {
         let devices = self.devices.lock().unwrap();
         devices.send_message(device_id, xid, message);
     }
-}
-
-pub enum DeviceControllerEvent {
-    SwitchConnected(DeviceId),
-    PortStats(DeviceId, Vec<PortStats>),
-    FlowStats(DeviceId, Vec<FlowStats>),
-    TableStats(DeviceId, Vec<TableStats>),
-    QueueStats(DeviceId, Vec<QueueStats>),
-    AggregateStats(DeviceId, u64, u64, u32),
-    PacketIn(DeviceId, PacketIn)
 }
 
 pub struct DeviceControllerFuture {
@@ -207,45 +196,8 @@ impl DeviceControllerFuture {
         }
     }
 
-    fn handle_stats(&self, device_id: DeviceId, stats: StatsResp) {
-        match stats.body {
-            StatsRespBody::DescBody{ .. } => {
-            },
-            StatsRespBody::PortBody{ port_stats } => {
-                self.controller.post(DeviceControllerEvent::PortStats(device_id, port_stats));
-            },
-            StatsRespBody::TableBody{ table_stats } => {
-                self.controller.post(DeviceControllerEvent::TableStats(device_id, table_stats));
-            },
-            StatsRespBody::AggregateStatsBody{ packet_count, byte_count, flow_count } => {
-                // TODO improve this. Need to track the request to make the response make
-                // sense.
-                self.controller.post(DeviceControllerEvent::AggregateStats(device_id, packet_count, byte_count, flow_count));
-            },
-            StatsRespBody::FlowStatsBody{ flow_stats } => {
-                self.controller.post(DeviceControllerEvent::FlowStats(device_id, flow_stats));
-            },
-            StatsRespBody::QueueBody{ queue_stats } => {
-                self.controller.post(DeviceControllerEvent::QueueStats(device_id, queue_stats));
-            },
-            StatsRespBody::VendorBody => {
-            },
-        }
-    }
-
-    fn handle_message(&self, device_id: DeviceId, message: Message) {
-        match message {
-            Message::FeaturesReply(_feats) => {
-                self.controller.post(DeviceControllerEvent::SwitchConnected(device_id));
-            },
-            Message::StatsReply(stats) => {
-                self.handle_stats(device_id, stats);
-            }
-            Message::PacketIn(pkt) => {
-                self.controller.post(DeviceControllerEvent::PacketIn(device_id, pkt));
-            }
-            _ => (),
-        }
+    fn handle_event(&self, event: DeviceEvent) {
+        self.controller.post(event);
     }
 }
 
@@ -254,12 +206,12 @@ impl Future for DeviceControllerFuture {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        const MESSAGES_PER_TICK: usize = 10;
-        let mut rx = self.controller.message_rx.lock().unwrap();
-        for _ in 0..MESSAGES_PER_TICK {
+        const EVENTS_PER_TICK: usize = 10;
+        let mut rx = self.controller.device_event_rx.lock().unwrap();
+        for _ in 0..EVENTS_PER_TICK {
             match try_ready!(rx.poll()) {
-                Some((device_id, message)) => {
-                    self.handle_message(device_id, message);
+                Some(event) => {
+                    self.handle_event(event);
                 },
                 None => {
                     return Ok(Async::Ready(()));
