@@ -7,7 +7,7 @@ use futures::sync::mpsc::{Receiver, Sender};
 use ofp_header::Xid;
 use rust_ofp::ofp_device::openflow0x01::Device;
 use rust_ofp::ofp_device::{ OfpDevice, DeviceId, DeviceEvent };
-use rust_ofp::openflow0x01::message::Message;
+use rust_ofp::message::Message;
 use std::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;

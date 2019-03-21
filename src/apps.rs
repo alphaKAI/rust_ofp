@@ -6,9 +6,10 @@ use std::time::{Duration, Instant};
 
 use ofp_device::{ DeviceId, DeviceEvent };
 use ofp_controller::{DeviceControllerApp, DeviceController };
-use openflow0x01::message::Message;
-use openflow0x01::{ StatsReq, StatsReqType, StatsReqBody, OfpPort, OfpQueue, PortStats, FlowStats,
-                    TableStats, QueueStats, Pattern, ALL_TABLES };
+use message::Message;
+use message::{ StatsReq, StatsReqType, StatsReqBody, PortStats, FlowStats,
+               TableStats, QueueStats, Pattern };
+use openflow0x01::{ OfpPort, OfpQueue, ALL_TABLES };
 
 fn request_stats(controller: Arc<DeviceController>) {
     controller.list_all_devices().iter().for_each(

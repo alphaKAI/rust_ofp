@@ -3,7 +3,7 @@ use std::fmt;
 use rust_ofp::ofp_message::{ OfpMessage, OfpParsingError };
 use ofp_header::{ OfpHeader, Xid };
 
-use rust_ofp::openflow0x01::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats, TableStats, QueueStats };
+use rust_ofp::message::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats, TableStats, QueueStats };
 
 const WRITING_CHANNEL_SIZE: usize = 1000;
 const MAXIMUM_SUPPORTED_VERSION: u8 = 1;
@@ -84,7 +84,7 @@ pub mod openflow0x01 {
 
     use rust_ofp::ofp_header::OfpHeader;
     use rust_ofp::ofp_message::OfpMessage;
-    use rust_ofp::openflow0x01::message::Message;
+    use rust_ofp::message::Message;
     use std::sync::Mutex;
     use std::sync::Arc;
     use tokio::io::{ ReadHalf, WriteHalf };

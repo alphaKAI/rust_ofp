@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use rust_ofp::openflow0x01::{Action, PacketIn, PacketOut, Pattern, PseudoPort};
+use rust_ofp::message::{Action, PacketIn, PacketOut, Pattern, PseudoPort};
 use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
 use ofp_controller::{DeviceControllerApp, DeviceController};
 use ofp_device::{ DeviceId, DeviceEvent };
 use std::sync::Arc;
-use openflow0x01::message::Message;
-use openflow0x01::FlowMod;
+use message::Message;
+use message::FlowMod;
 
 /// Implements L2 learning switch functionality. Switches forward packets to the
 /// learning controller, which will examine the packet and learn the source-port
