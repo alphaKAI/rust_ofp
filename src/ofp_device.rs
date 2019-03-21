@@ -23,7 +23,7 @@ pub trait OfpDevice {
 }
 
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DeviceId(u64);
 
 impl fmt::Display for DeviceId {
