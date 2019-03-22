@@ -4,8 +4,8 @@ use tokio::prelude::*;
 use futures::sync::mpsc;
 use futures::sync::mpsc::{Receiver, Sender};
 
-use ofp_header::Xid;
-use rust_ofp::ofp_device::openflow0x01::Device;
+use ofp_header::{Xid, OPENFLOW_0_01_VERSION};
+use rust_ofp::ofp_device::Device;
 use rust_ofp::ofp_device::{ OfpDevice, DeviceId, DeviceEvent };
 use rust_ofp::message::Message;
 use std::sync::Mutex;
@@ -145,7 +145,7 @@ impl DeviceController {
         self.apps.lock().unwrap().start();
     }
 
-    fn create_device(&self, stream: TcpStream) -> Sender<(Xid, Message)> {
+    fn create_device(&self, stream: TcpStream) -> Sender<(u8, Xid, Message)> {
         let mut devices = self.devices.lock().unwrap();
         let device = Device::new(stream, self.device_event_tx.clone());
         let writer = device.get_writer();
@@ -160,7 +160,7 @@ impl DeviceController {
     pub fn register_device(&self, stream: TcpStream) {
         let mut device_writer = self.create_device(stream);
         // TODO handle a future properly here to ensure Hello is sent
-        device_writer.try_send((0, Message::Hello)).unwrap();
+        device_writer.try_send((OPENFLOW_0_01_VERSION, 0, Message::Hello)).unwrap();
     }
 
     pub fn register_app(&self, app: Box<DeviceControllerApp + Send + Sync>) {

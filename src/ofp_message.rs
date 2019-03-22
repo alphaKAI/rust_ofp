@@ -16,6 +16,10 @@ pub enum OfpParsingError {
     #[fail(display = "Parsing error: {}", message)]
     ParsingError {
         message: String,
+    },
+    #[fail(display = "Unsupported OpenFlow version: {}", version)]
+    UnsupportedVersion {
+        version: u8
     }
 }
 

@@ -8,6 +8,8 @@ pub const OFP_HEADER_LENGTH: usize = 8;
 
 pub type Xid = u32;
 
+pub const OPENFLOW_0_01_VERSION: u8 = 1;
+
 /// OpenFlow Header
 ///
 /// The first fields of every OpenFlow message, no matter the protocol version.
