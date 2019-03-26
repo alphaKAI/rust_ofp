@@ -10,67 +10,13 @@ use packet::{bytes_of_mac, mac_of_bytes};
 
 use message::*;
 use ofp_message::OfpParsingError;
+use ofp_utils::{write_padding_bytes, read_fixed_size_string};
 
 const OFP_MAX_TABLE_NAME_LENGTH: usize = 32;
 const DESC_STR_LENGTH: usize = 256;
 const SERIAL_NUM_LENGTH: usize = 32;
 
 pub const ALL_TABLES: u8 = 0xff;
-
-fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {
-    for _ in 0..count {
-        bytes.write_u8(0).unwrap();
-    }
-}
-
-// TODO perhaps there is a faster way to do this?
-fn read_fixed_size_string(bytes: &mut Cursor<Vec<u8>>, max_capacity: usize) -> String {
-    let mut arr = Vec::with_capacity(max_capacity);
-    let mut read_count: usize = 0;
-
-    // TODO make this return a Result
-    assert!(bytes.remaining() >= max_capacity);
-    for _i in 0..max_capacity {
-        read_count += 1;
-        let next_char = bytes.read_u8().unwrap();
-        if next_char == 0 {
-            break;
-        }
-        arr.push(next_char);
-    }
-
-    bytes.consume(max_capacity - read_count);
-
-    String::from_utf8(arr).unwrap()
-}
-
-/// OpenFlow 1.0 message type codes, used by headers to identify meaning of the rest of a message.
-#[repr(u8)]
-#[derive(Copy, Clone, Debug)]
-pub enum MsgCode {
-    Hello,
-    Error,
-    EchoReq,
-    EchoResp,
-    Vendor,
-    FeaturesReq,
-    FeaturesResp,
-    GetConfigReq,
-    GetConfigResp,
-    SetConfig,
-    PacketIn,
-    FlowRemoved,
-    PortStatus,
-    PacketOut,
-    FlowMod,
-    PortMod,
-    StatsReq,
-    StatsResp,
-    BarrierReq,
-    BarrierResp,
-    QueueGetConfigReq,
-    QueueGetConfigResp,
-}
 
 /// Common API for message types implementing OpenFlow Message Codes (see `MsgCode` enum).
 pub trait MessageType {
@@ -82,7 +28,9 @@ pub trait MessageType {
     fn marshal(Self, &mut Vec<u8>);
 }
 
-impl Wildcards {
+create_empty_wrapper!(Wildcards, Wildcards0x01);
+
+impl Wildcards0x01 {
     fn set_nw_mask(f: u32, offset: usize, v: u32) -> u32 {
         let value = (0x3f & v) << offset;
         f | value
@@ -90,18 +38,6 @@ impl Wildcards {
 
     fn get_nw_mask(f: u32, offset: usize) -> u32 {
         (f >> offset) & 0x3f
-    }
-
-    fn mask_bits(x: &Option<Mask<u32>>) -> u32 {
-        match *x {
-            None => 32,
-            Some(ref x) => {
-                match x.mask {
-                    None => 0,
-                    Some(m) => m,
-                }
-            }
-        }
     }
 
     fn marshal(w: Wildcards, bytes: &mut Vec<u8>) {
@@ -114,8 +50,8 @@ impl Wildcards {
         let ret = bit(5, ret as u64, w.nw_proto) as u32;
         let ret = bit(6, ret as u64, w.tp_src) as u32;
         let ret = bit(7, ret as u64, w.tp_dst) as u32;
-        let ret = Wildcards::set_nw_mask(ret, 8, w.nw_src);
-        let ret = Wildcards::set_nw_mask(ret, 14, w.nw_dst);
+        let ret = Wildcards0x01::set_nw_mask(ret, 8, w.nw_src);
+        let ret = Wildcards0x01::set_nw_mask(ret, 14, w.nw_dst);
         let ret = bit(20, ret as u64, w.dl_vlan_pcp) as u32;
         let ret = bit(21, ret as u64, w.nw_tos) as u32;
         bytes.write_u32::<BigEndian>(ret).unwrap()
@@ -131,55 +67,23 @@ impl Wildcards {
             nw_proto: test_bit(5, bits as u64),
             tp_src: test_bit(6, bits as u64),
             tp_dst: test_bit(7, bits as u64),
-            nw_src: Wildcards::get_nw_mask(bits, 8),
-            nw_dst: Wildcards::get_nw_mask(bits, 14),
+            nw_src: Wildcards0x01::get_nw_mask(bits, 8),
+            nw_dst: Wildcards0x01::get_nw_mask(bits, 14),
             dl_vlan_pcp: test_bit(20, bits as u64),
             nw_tos: test_bit(21, bits as u64),
         }
     }
 }
 
-impl Pattern {
-    pub fn match_all() -> Pattern {
-        Pattern {
-            dl_src: None,
-            dl_dst: None,
-            dl_typ: None,
-            dl_vlan: None,
-            dl_vlan_pcp: None,
-            nw_src: None,
-            nw_dst: None,
-            nw_proto: None,
-            nw_tos: None,
-            tp_src: None,
-            tp_dst: None,
-            in_port: None,
-        }
-    }
+create_empty_wrapper!(Pattern, Pattern0x01);
 
-    fn wildcards_of_pattern(m: &Pattern) -> Wildcards {
-        Wildcards {
-            in_port: m.in_port.is_none(),
-            dl_vlan: m.dl_vlan.is_none(),
-            dl_src: m.dl_src.is_none(),
-            dl_dst: m.dl_dst.is_none(),
-            dl_type: m.dl_typ.is_none(),
-            nw_proto: m.nw_proto.is_none(),
-            tp_src: m.tp_src.is_none(),
-            tp_dst: m.tp_dst.is_none(),
-            nw_src: Wildcards::mask_bits(&m.nw_src),
-            nw_dst: Wildcards::mask_bits(&m.nw_dst),
-            dl_vlan_pcp: m.dl_vlan_pcp.is_none(),
-            nw_tos: m.nw_tos.is_none(),
-        }
-    }
-
+impl Pattern0x01 {
     fn size_of(_: &Pattern) -> usize {
         size_of::<OfpMatch>()
     }
 
     fn parse(bytes: &mut Cursor<Vec<u8>>) -> Pattern {
-        let w = Wildcards::parse(bytes.read_u32::<BigEndian>().unwrap());
+        let w = Wildcards0x01::parse(bytes.read_u32::<BigEndian>().unwrap());
         let in_port = if w.in_port {
             bytes.consume( 2);
             None
@@ -308,7 +212,7 @@ impl Pattern {
 
     fn marshal(p: Pattern, bytes: &mut Vec<u8>) {
         let w = Pattern::wildcards_of_pattern(&p);
-        Wildcards::marshal(w, bytes);
+        Wildcards0x01::marshal(w, bytes);
         bytes.write_u16::<BigEndian>(p.in_port.unwrap_or(0)).unwrap();
         for i in 0..6 {
             bytes.write_u8(bytes_of_mac(Self::if_word48(p.dl_src))[i]).unwrap();
@@ -365,12 +269,15 @@ pub enum OfpPort {
     OFPPNone = 0xffff,
 }
 
-impl PseudoPort {
+
+create_empty_wrapper!(PseudoPort, PseudoPort0x01);
+
+impl PseudoPort0x01 {
     fn of_int(p: u16) -> Result<Option<PseudoPort>, OfpParsingError> {
         if (OfpPort::OFPPNone as u16) == p {
             Ok(None)
         } else {
-            Ok(Some(PseudoPort::make(p, 0)?))
+            Ok(Some(PseudoPort0x01::make(p, 0)?))
         }
     }
 
@@ -453,7 +360,9 @@ enum OfpActionType {
     OFPATEnqueue,
 }
 
-impl Action {
+create_empty_wrapper!(Action, Action0x01);
+
+impl Action0x01 {
     fn type_code(a: &Action) -> OfpActionType {
         match *a {
             Action::Output(_) => OfpActionType::OFPATOutput,
@@ -491,7 +400,7 @@ impl Action {
     }
 
     fn size_of_sequence(actions: &Vec<Action>) -> usize {
-        actions.iter().fold(0, |acc, x| Action::size_of(x) + acc)
+        actions.iter().fold(0, |acc, x| Action0x01::size_of(x) + acc)
     }
 
     fn _parse(bytes: &mut Cursor<Vec<u8>>) -> Result<Action, OfpParsingError> {
@@ -501,7 +410,7 @@ impl Action {
             t if t == (OfpActionType::OFPATOutput as u16) => {
                 let port_code = bytes.read_u16::<BigEndian>().unwrap();
                 let len = bytes.read_u16::<BigEndian>().unwrap();
-                Action::Output(PseudoPort::make(port_code, len as u64)?)
+                Action::Output(PseudoPort0x01::make(port_code, len as u64)?)
             }
             t if t == (OfpActionType::OFPATSetVlanVId as u16) => {
                 let vid = bytes.read_u16::<BigEndian>().unwrap();
@@ -562,7 +471,7 @@ impl Action {
                 let pt = bytes.read_u16::<BigEndian>().unwrap();
                 bytes.consume(6);
                 let qid = bytes.read_u32::<BigEndian>().unwrap();
-                Action::Enqueue(PseudoPort::make(pt, 0)?, qid)
+                Action::Enqueue(PseudoPort0x01::make(pt, 0)?, qid)
             }
             t => {
                 return Result::Err(OfpParsingError::UnexpectedValueError {
@@ -579,9 +488,9 @@ impl Action {
         if bytes.remaining() == 0 {
             Ok(vec![])
         } else {
-            let action = Action::_parse(bytes)?;
+            let action = Action0x01::_parse(bytes)?;
             let mut v = vec![action];
-            v.append(&mut Action::parse_sequence(bytes)?);
+            v.append(&mut Action0x01::parse_sequence(bytes)?);
             Ok(v)
         }
     }
@@ -597,15 +506,15 @@ impl Action {
     }
 
     fn marshal(act: Action, bytes: &mut Vec<u8>) {
-        bytes.write_u16::<BigEndian>(Action::type_code(&act) as u16).unwrap();
-        bytes.write_u16::<BigEndian>(Action::size_of(&act) as u16).unwrap();
+        bytes.write_u16::<BigEndian>(Action0x01::type_code(&act) as u16).unwrap();
+        bytes.write_u16::<BigEndian>(Action0x01::size_of(&act) as u16).unwrap();
         match act {
             Action::Output(pp) => {
-                PseudoPort::marshal(pp, bytes);
+                PseudoPort0x01::marshal(pp, bytes);
                 bytes.write_u16::<BigEndian>(match pp {
-                        PseudoPort::Controller(w) => w as u16,
-                        _ => 0,
-                    })
+                    PseudoPort::Controller(w) => w as u16,
+                    _ => 0,
+                })
                     .unwrap()
             }
             Action::SetDlVlan(None) => bytes.write_u32::<BigEndian>(0xffff).unwrap(),
@@ -643,7 +552,7 @@ impl Action {
                 bytes.write_u16::<BigEndian>(0).unwrap();
             }
             Action::Enqueue(pp, qid) => {
-                PseudoPort::marshal(pp, bytes);
+                PseudoPort0x01::marshal(pp, bytes);
                 for _ in 0..6 {
                     bytes.write_u8(0).unwrap();
                 }
@@ -653,28 +562,12 @@ impl Action {
     }
 }
 
-impl Timeout {
-    fn of_int(tm: u16) -> Timeout {
-        match tm {
-            0 => Timeout::Permanent,
-            d => Timeout::ExpiresAfter(d),
-        }
-    }
-
-    fn to_int(tm: Timeout) -> u16 {
-        match tm {
-            Timeout::Permanent => 0,
-            Timeout::ExpiresAfter(d) => d,
-        }
-    }
-}
-
 #[repr(packed)]
 struct OfpSwitchFeatures(u64, u32, u8, [u8; 3], u32, u32);
 
 impl MessageType for SwitchFeatures {
     fn size_of(sf: &SwitchFeatures) -> usize {
-        let pds: usize = sf.ports.iter().map(|pd| PortDesc::size_of(pd)).sum();
+        let pds: usize = sf.ports.iter().map(|pd| PortDesc0x01::size_of(pd)).sum();
         size_of::<OfpSwitchFeatures>() + pds
     }
 
@@ -720,7 +613,7 @@ impl MessageType for SwitchFeatures {
             let rem = bytes.get_ref()[pos..].to_vec();
             let num_ports = rem.len() / size_of::<OfpPhyPort>();
             for _ in 0..num_ports {
-                v.push(PortDesc::parse(&mut bytes)?)
+                v.push(PortDesc0x01::parse(&mut bytes)?)
             }
             v
         };
@@ -740,7 +633,9 @@ impl MessageType for SwitchFeatures {
 #[repr(packed)]
 struct OfpFlowMod(u64, u16, u16, u16, u16, u32, u16, u16);
 
-impl FlowMod {
+create_empty_wrapper!(FlowMod, FlowMod0x01);
+
+impl FlowMod0x01 {
     fn flags_to_int(check_overlap: bool, notify_when_removed: bool) -> u16 {
         (if check_overlap { 1 << 1 } else { 0 }) | (if notify_when_removed { 1 << 0 } else { 0 })
     }
@@ -756,22 +651,22 @@ impl FlowMod {
 
 impl MessageType for FlowMod {
     fn size_of(msg: &FlowMod) -> usize {
-        Pattern::size_of(&msg.pattern) + size_of::<OfpFlowMod>() +
-        Action::size_of_sequence(&msg.actions)
+        Pattern0x01::size_of(&msg.pattern) + size_of::<OfpFlowMod>() +
+        Action0x01::size_of_sequence(&msg.actions)
     }
 
     fn parse(buf: &[u8]) -> Result<FlowMod, OfpParsingError> {
         let mut bytes = Cursor::new(buf.to_vec());
-        let pattern = Pattern::parse(&mut bytes);
+        let pattern = Pattern0x01::parse(&mut bytes);
         let cookie = bytes.read_u64::<BigEndian>().unwrap();
         let command = unsafe { transmute(bytes.read_u16::<BigEndian>().unwrap()) };
         let idle = Timeout::of_int(bytes.read_u16::<BigEndian>().unwrap());
         let hard = Timeout::of_int(bytes.read_u16::<BigEndian>().unwrap());
         let prio = bytes.read_u16::<BigEndian>().unwrap();
         let buffer_id = bytes.read_i32::<BigEndian>().unwrap();
-        let out_port = PseudoPort::of_int(bytes.read_u16::<BigEndian>().unwrap())?;
+        let out_port = PseudoPort0x01::of_int(bytes.read_u16::<BigEndian>().unwrap())?;
         let flags = bytes.read_u16::<BigEndian>().unwrap();
-        let actions = Action::parse_sequence(&mut bytes)?;
+        let actions = Action0x01::parse_sequence(&mut bytes)?;
         Ok(FlowMod {
             command: command,
             pattern: pattern,
@@ -780,7 +675,7 @@ impl MessageType for FlowMod {
             cookie: cookie,
             idle_timeout: idle,
             hard_timeout: hard,
-            notify_when_removed: FlowMod::notify_when_removed_of_flags(flags),
+            notify_when_removed: FlowMod0x01::notify_when_removed_of_flags(flags),
             apply_to_packet: {
                 match buffer_id {
                     -1 => None,
@@ -788,12 +683,12 @@ impl MessageType for FlowMod {
                 }
             },
             out_port: out_port,
-            check_overlap: FlowMod::check_overlap_of_flags(flags),
+            check_overlap: FlowMod0x01::check_overlap_of_flags(flags),
         })
     }
 
     fn marshal(fm: FlowMod, bytes: &mut Vec<u8>) {
-        Pattern::marshal(fm.pattern, bytes);
+        Pattern0x01::marshal(fm.pattern, bytes);
         bytes.write_u64::<BigEndian>(fm.cookie).unwrap();
         bytes.write_u16::<BigEndian>(fm.command as u16).unwrap();
         bytes.write_u16::<BigEndian>(Timeout::to_int(fm.idle_timeout)).unwrap();
@@ -806,19 +701,19 @@ impl MessageType for FlowMod {
             .unwrap();
         match fm.out_port {
             None => bytes.write_u16::<BigEndian>(OfpPort::OFPPNone as u16).unwrap(),
-            Some(x) => PseudoPort::marshal(x, bytes),
+            Some(x) => PseudoPort0x01::marshal(x, bytes),
         }
-        bytes.write_u16::<BigEndian>(FlowMod::flags_to_int(fm.check_overlap,
+        bytes.write_u16::<BigEndian>(FlowMod0x01::flags_to_int(fm.check_overlap,
                                                           fm.notify_when_removed))
             .unwrap();
-        for act in Action::move_controller_last(fm.actions) {
+        for act in Action0x01::move_controller_last(fm.actions) {
             match act {
                 Action::Output(PseudoPort::Table) => {
                     panic!("OFPPTable not allowed in installed flow.")
                 }
                 _ => (),
             }
-            Action::marshal(act, bytes)
+            Action0x01::marshal(act, bytes)
         }
     }
 }
@@ -828,7 +723,9 @@ pub enum OfpQueue {
     OFPQAll = 0xffffffff,
 }
 
-impl StatsReqType {
+create_empty_wrapper!(StatsReqType, StatsReqType0x01);
+
+impl StatsReqType0x01 {
     pub fn from_u16(value: u16) -> StatsReqType {
         match value {
             0 => StatsReqType::Desc,
@@ -860,7 +757,7 @@ impl MessageType for StatsReq {
         size_of::<OfpStatsReq>() +
             match &msg.body {
                 StatsReqBody::DescBody => 0,
-                StatsReqBody::FlowStatsBody{ pattern, .. } => Pattern::size_of(&pattern) + size_of::<OfpStatsReqFlowBody>(),
+                StatsReqBody::FlowStatsBody{ pattern, .. } => Pattern0x01::size_of(&pattern) + size_of::<OfpStatsReqFlowBody>(),
                 StatsReqBody::TableBody => 0,
                 StatsReqBody::PortBody{ .. } => size_of::<OfpStatsReqPortBody>(),
                 StatsReqBody::QueueBody{ .. } => size_of::<OfpStatsReqQueueBody>(),
@@ -870,12 +767,12 @@ impl MessageType for StatsReq {
 
     fn parse(buf: &[u8]) -> Result<StatsReq, OfpParsingError> {
         let mut bytes = Cursor::new(buf.to_vec());
-        let req_type = StatsReqType::from_u16(bytes.read_u16::<BigEndian>().unwrap());
+        let req_type = StatsReqType0x01::from_u16(bytes.read_u16::<BigEndian>().unwrap());
         let flags = bytes.read_u16::<BigEndian>().unwrap();
         let body = match req_type {
             StatsReqType::Desc => StatsReqBody::DescBody,
             StatsReqType::Flow | StatsReqType::Aggregate => {
-                let pattern = Pattern::parse(&mut bytes);
+                let pattern = Pattern0x01::parse(&mut bytes);
                 let table_id = bytes.read_u8().unwrap();
                 bytes.consume(1);
                 let out_port = bytes.read_u16::<BigEndian>().unwrap();
@@ -919,7 +816,7 @@ impl MessageType for StatsReq {
         match sr.body {
             StatsReqBody::DescBody => {},
             StatsReqBody::FlowStatsBody{pattern, table_id, out_port} => {
-                Pattern::marshal(pattern, bytes);
+                Pattern0x01::marshal(pattern, bytes);
                 bytes.write_u8(table_id).unwrap();
                 write_padding_bytes(bytes, 1);
                 bytes.write_u16::<BigEndian>(out_port).unwrap();
@@ -939,7 +836,9 @@ impl MessageType for StatsReq {
     }
 }
 
-impl TransmissionCounter {
+create_empty_wrapper!(TransmissionCounter, TransmissionCounter0x01);
+
+impl TransmissionCounter0x01 {
     fn from_bytes(bytes: &mut Cursor<Vec<u8>>) -> io::Result<TransmissionCounter> {
         let rx = bytes.read_u64::<BigEndian>()?;
         let tx = bytes.read_u64::<BigEndian>()?;
@@ -969,11 +868,13 @@ struct OfpStatsRespPortStats(u16, [u8; 6], [u64; 2],
                              [u64; 2], [u64; 2], [u64; 2],
                              u64, u64, u64, u64);
 
-impl FlowStats {
+create_empty_wrapper!(FlowStats, FlowStats0x01);
+
+impl FlowStats0x01 {
     fn size_of(stats : &FlowStats) -> usize {
-        Pattern::size_of(&stats.pattern) +
+        Pattern0x01::size_of(&stats.pattern) +
             size_of::<OfpStatsRespFlowStats>() +
-            Action::size_of_sequence(&stats.actions)
+            Action0x01::size_of_sequence(&stats.actions)
     }
 }
 
@@ -986,7 +887,7 @@ impl MessageType for StatsResp {
             match msg.body {
                 StatsRespBody::DescBody{ .. } => size_of::<OfpStatsRespDescBody>(),
                 StatsRespBody::FlowStatsBody{ ref flow_stats } =>
-                    flow_stats.iter().map(|stats| FlowStats::size_of(stats)).sum(),
+                    flow_stats.iter().map(|stats| FlowStats0x01::size_of(stats)).sum(),
                 StatsRespBody::AggregateStatsBody{ .. } => size_of::<OfpStatsRespAggregateBody>(),
                 StatsRespBody::TableBody{ ref table_stats } =>
                     table_stats.len() * size_of::<OfpStatsRespTableStats>(),
@@ -1000,7 +901,7 @@ impl MessageType for StatsResp {
 
     fn parse(buf: &[u8]) -> Result<StatsResp, OfpParsingError> {
         let mut bytes = Cursor::new(buf.to_vec());
-        let req_type = StatsReqType::from_u16(bytes.read_u16::<BigEndian>().unwrap());
+        let req_type = StatsReqType0x01::from_u16(bytes.read_u16::<BigEndian>().unwrap());
         let flags = bytes.read_u16::<BigEndian>().unwrap();
         let body = match req_type {
             StatsReqType::Desc => {
@@ -1038,7 +939,7 @@ impl MessageType for StatsResp {
 
                     let table_id = flow.read_u8().unwrap();
                     flow.consume(1);
-                    let pattern = Pattern::parse(&mut flow);
+                    let pattern = Pattern0x01::parse(&mut flow);
                     let duration_sec = flow.read_u32::<BigEndian>().unwrap();
                     let duration_nsec = flow.read_u32::<BigEndian>().unwrap();
                     let priority = flow.read_u16::<BigEndian>().unwrap();
@@ -1048,7 +949,7 @@ impl MessageType for StatsResp {
                     let cookie = flow.read_u64::<BigEndian>().unwrap();
                     let packet_count = flow.read_u64::<BigEndian>().unwrap();
                     let byte_count = flow.read_u64::<BigEndian>().unwrap();
-                    let actions = Action::parse_sequence(&mut flow)?;
+                    let actions = Action0x01::parse_sequence(&mut flow)?;
 
                     flow_stats.push(FlowStats {
                         table_id,
@@ -1087,7 +988,7 @@ impl MessageType for StatsResp {
                     let mut name: [u8; OFP_MAX_TABLE_NAME_LENGTH] = [0; OFP_MAX_TABLE_NAME_LENGTH];
                     bytes.read(&mut name).unwrap();
                     let wildcards_int = bytes.read_u32::<BigEndian>().unwrap();
-                    let wildcards = Wildcards::parse(wildcards_int);
+                    let wildcards = Wildcards0x01::parse(wildcards_int);
                     let max_entries = bytes.read_u32::<BigEndian>().unwrap();
                     let active_count = bytes.read_u32::<BigEndian>().unwrap();
                     let lookup_count = bytes.read_u64::<BigEndian>().unwrap();
@@ -1114,10 +1015,10 @@ impl MessageType for StatsResp {
                 while bytes.remaining() >= size_of::<OfpStatsRespPortStats>() {
                     let port_no = bytes.read_u16::<BigEndian>().unwrap();
                     bytes.consume(6);
-                    let packets = TransmissionCounter::from_bytes(&mut bytes).unwrap();
-                    let bytes_counter = TransmissionCounter::from_bytes(&mut bytes).unwrap();
-                    let dropped = TransmissionCounter::from_bytes(&mut bytes).unwrap();
-                    let errors = TransmissionCounter::from_bytes(&mut bytes).unwrap();
+                    let packets = TransmissionCounter0x01::from_bytes(&mut bytes).unwrap();
+                    let bytes_counter = TransmissionCounter0x01::from_bytes(&mut bytes).unwrap();
+                    let dropped = TransmissionCounter0x01::from_bytes(&mut bytes).unwrap();
+                    let errors = TransmissionCounter0x01::from_bytes(&mut bytes).unwrap();
                     let rx_frame_errors = bytes.read_u64::<BigEndian>().unwrap();
                     let rx_over_errors = bytes.read_u64::<BigEndian>().unwrap();
                     let rx_crc_errors = bytes.read_u64::<BigEndian>().unwrap();
@@ -1205,14 +1106,9 @@ impl MessageType for StatsResp {
 }
 
 
-impl Payload {
-    pub fn size_of(payload: &Payload) -> usize {
-        match *payload {
-            Payload::Buffered(_, ref buf) |
-            Payload::NotBuffered(ref buf) => buf.len(),
-        }
-    }
+create_empty_wrapper!(Payload, Payload0x01);
 
+impl Payload0x01 {
     fn marshal(payload: Payload, bytes: &mut Vec<u8>) {
         match payload {
             Payload::Buffered(_, buf) |
@@ -1223,12 +1119,6 @@ impl Payload {
 
 #[repr(packed)]
 struct OfpPacketIn(i32, u16, u16, u8, u8);
-
-impl PacketIn {
-    pub fn clone_payload(&self) -> Payload {
-        self.input_payload.clone()
-    }
-}
 
 impl MessageType for PacketIn {
     fn size_of(pi: &PacketIn) -> usize {
@@ -1268,7 +1158,7 @@ impl MessageType for PacketIn {
         bytes.write_u16::<BigEndian>(pi.port).unwrap();
         bytes.write_u8(pi.reason as u8).unwrap();
         bytes.write_u8(0).unwrap(); // Padding
-        Payload::marshal(pi.input_payload, bytes)
+        Payload0x01::marshal(pi.input_payload, bytes)
     }
 }
 
@@ -1277,7 +1167,7 @@ struct OfpPacketOut(u32, u16, u16);
 
 impl MessageType for PacketOut {
     fn size_of(po: &PacketOut) -> usize {
-        size_of::<OfpPacketOut>() + Action::size_of_sequence(&po.apply_actions) +
+        size_of::<OfpPacketOut>() + Action0x01::size_of_sequence(&po.apply_actions) +
         Payload::size_of(&po.output_payload)
     }
 
@@ -1292,7 +1182,7 @@ impl MessageType for PacketOut {
         let mut actions_buf = vec![0; actions_len as usize];
         bytes.read_exact(&mut actions_buf).unwrap();
         let mut actions_bytes = Cursor::new(actions_buf);
-        let actions = Action::parse_sequence(&mut actions_bytes)?;
+        let actions = Action0x01::parse_sequence(&mut actions_bytes)?;
         Ok(PacketOut {
             output_payload: match buf_id {
                 None => Payload::NotBuffered(bytes.fill_buf().unwrap().to_vec()),
@@ -1316,14 +1206,14 @@ impl MessageType for PacketOut {
             })
             .unwrap();
         match po.port_id {
-            Some(id) => PseudoPort::marshal(PseudoPort::PhysicalPort(id), bytes),
+            Some(id) => PseudoPort0x01::marshal(PseudoPort::PhysicalPort(id), bytes),
             None => bytes.write_u16::<BigEndian>(OfpPort::OFPPNone as u16).unwrap(),
         }
-        bytes.write_u16::<BigEndian>(Action::size_of_sequence(&po.apply_actions) as u16).unwrap();
-        for act in Action::move_controller_last(po.apply_actions) {
-            Action::marshal(act, bytes);
+        bytes.write_u16::<BigEndian>(Action0x01::size_of_sequence(&po.apply_actions) as u16).unwrap();
+        for act in Action0x01::move_controller_last(po.apply_actions) {
+            Action0x01::marshal(act, bytes);
         }
-        Payload::marshal(po.output_payload, bytes)
+        Payload0x01::marshal(po.output_payload, bytes)
     }
 }
 
@@ -1332,12 +1222,12 @@ struct OfpFlowRemoved(u64, u16, u8, u8, u32, u32, u16, u16, u64, u64);
 
 impl MessageType for FlowRemoved {
     fn size_of(f: &FlowRemoved) -> usize {
-        Pattern::size_of(&f.pattern) + size_of::<OfpFlowRemoved>()
+        Pattern0x01::size_of(&f.pattern) + size_of::<OfpFlowRemoved>()
     }
 
     fn parse(buf: &[u8]) -> Result<FlowRemoved, OfpParsingError> {
         let mut bytes = Cursor::new(buf.to_vec());
-        let pattern = Pattern::parse(&mut bytes);
+        let pattern = Pattern0x01::parse(&mut bytes);
         let cookie = bytes.read_i64::<BigEndian>().unwrap();
         let priority = bytes.read_u16::<BigEndian>().unwrap();
         let reason = unsafe { transmute(bytes.read_u8().unwrap()) };
@@ -1362,7 +1252,7 @@ impl MessageType for FlowRemoved {
     }
 
     fn marshal(f: FlowRemoved, bytes: &mut Vec<u8>) {
-        Pattern::marshal(f.pattern, bytes);
+        Pattern0x01::marshal(f.pattern, bytes);
         bytes.write_i64::<BigEndian>(f.cookie).unwrap();
         bytes.write_u16::<BigEndian>(f.priority).unwrap();
         bytes.write_u8(f.reason as u8).unwrap();
@@ -1376,7 +1266,9 @@ impl MessageType for FlowRemoved {
     }
 }
 
-impl PortFeatures {
+create_empty_wrapper!(PortFeatures, PortFeatures0x01);
+
+impl PortFeatures0x01 {
     fn of_int(d: u32) -> PortFeatures {
         PortFeatures {
             f_10mbhd: test_bit(0, d as u64),
@@ -1398,7 +1290,9 @@ impl PortFeatures {
 #[repr(packed)]
 struct OfpPhyPort(u16, [u8; 6], [u8; 16], u32, u32, u32, u32, u32, u32);
 
-impl PortDesc {
+create_empty_wrapper!(PortDesc, PortDesc0x01);
+
+impl PortDesc0x01 {
     fn size_of(_: &PortDesc) -> usize {
         size_of::<OfpPhyPort>()
     }
@@ -1452,10 +1346,10 @@ impl PortDesc {
                 },
             }
         };
-        let curr = PortFeatures::of_int(bytes.read_u32::<BigEndian>().unwrap());
-        let advertised = PortFeatures::of_int(bytes.read_u32::<BigEndian>().unwrap());
-        let supported = PortFeatures::of_int(bytes.read_u32::<BigEndian>().unwrap());
-        let peer = PortFeatures::of_int(bytes.read_u32::<BigEndian>().unwrap());
+        let curr = PortFeatures0x01::of_int(bytes.read_u32::<BigEndian>().unwrap());
+        let advertised = PortFeatures0x01::of_int(bytes.read_u32::<BigEndian>().unwrap());
+        let supported = PortFeatures0x01::of_int(bytes.read_u32::<BigEndian>().unwrap());
+        let peer = PortFeatures0x01::of_int(bytes.read_u32::<BigEndian>().unwrap());
         Ok(PortDesc {
             port_no: port_no,
             hw_addr: hw_addr,
@@ -1479,7 +1373,7 @@ impl MessageType for PortStatus {
         let mut bytes = Cursor::new(buf.to_vec());
         let reason = unsafe { transmute(bytes.read_u8().unwrap()) };
         bytes.consume(7);
-        let desc = PortDesc::parse(&mut bytes)?;
+        let desc = PortDesc0x01::parse(&mut bytes)?;
         Ok(PortStatus {
             reason: reason,
             desc: desc,
@@ -1531,8 +1425,24 @@ pub mod message {
     use ofp_header::OfpHeader;
     use ofp_message::{ OfpMessage, OfpParsingError };
     use packet::Packet;
+    use openflow::MsgCode;
 
-    impl Message {
+    pub struct Message0x01 {
+        inner: Message
+    }
+
+    impl From<Message> for Message0x01 {
+        fn from(m: Message) -> Self {
+            Message0x01 { inner: m }
+        }
+    }
+
+    impl Message0x01 {
+
+        pub fn message(self) -> Message {
+            self.inner
+        }
+
         /// Map `Message` to associated OpenFlow message type code `MsgCode`.
         fn msg_code_of_message(msg: &Message) -> MsgCode {
             match *msg {
@@ -1574,9 +1484,9 @@ pub mod message {
         }
     }
 
-    impl OfpMessage for Message {
-        fn size_of(msg: &Message) -> usize {
-            match *msg {
+    impl OfpMessage for Message0x01 {
+        fn size_of(msg: &Message0x01) -> usize {
+            match msg.inner {
                 Message::Hello => OfpHeader::size(),
                 Message::Error(ref err) => Error::size_of(err),
                 Message::EchoRequest(ref buf) => OfpHeader::size() + buf.len(),
@@ -1596,25 +1506,25 @@ pub mod message {
             }
         }
 
-        fn header_of(xid: u32, msg: &Message) -> OfpHeader {
+        fn header_of(xid: u32, msg: &Message0x01) -> OfpHeader {
             let sizeof_buf = Self::size_of(&msg);
             OfpHeader::new(0x01,
-                           Self::msg_code_of_message(msg) as u8,
+                           Self::msg_code_of_message(&msg.inner) as u8,
                            sizeof_buf as u16,
                            xid)
         }
 
-        fn marshal(xid: u32, msg: Message) -> Vec<u8> {
+        fn marshal(xid: u32, msg: Message0x01) -> Vec<u8> {
             let hdr = Self::header_of(xid, &msg);
             let mut bytes = vec![];
             OfpHeader::marshal(&mut bytes, hdr);
-            Message::marshal_body(msg, &mut bytes);
+            Message0x01::marshal_body(msg.inner, &mut bytes);
             bytes
         }
 
-        fn parse(header: &OfpHeader, buf: &[u8]) -> Result<(u32, Message), OfpParsingError> {
+        fn parse(header: &OfpHeader, buf: &[u8]) -> Result<(u32, Message0x01), OfpParsingError> {
             let typ = header.type_code();
-            let msg = match typ {
+            let msg = Message0x01 { inner: match typ {
                 MsgCode::Hello => {
                     debug!("Message received: Hello!");
                     Message::Hello
@@ -1657,7 +1567,7 @@ pub mod message {
                     field: "message type".to_string(),
                     message: "message header".to_string()
                 }),
-            };
+            }};
             Ok((header.xid(), msg))
         }
     }
@@ -2049,8 +1959,8 @@ pub mod message {
             let ofp_header = OfpHeader::parse(header);
             let (payload, _) = tail.split_at(ofp_header.length() - OfpHeader::size());
 
-            let (_xid, ofp_message) = Message::parse(&ofp_header, payload).unwrap();
-            (ofp_header, ofp_message)
+            let (_xid, ofp_message) = Message0x01::parse(&ofp_header, payload).unwrap();
+            (ofp_header, ofp_message.inner)
         }
 
         fn verify_header(header: &OfpHeader) {
@@ -2061,7 +1971,7 @@ pub mod message {
         #[test]
         fn test_marshal_hello() {
             let hello = Message::Hello;
-            let data = Message::marshal(TEST_XID, hello);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(hello));
             let reference = load_reference(&"test/data/hello10.data");
 
             assert_eq!(reference, data);
@@ -2087,7 +1997,7 @@ pub mod message {
             let error = Message::Error(
                 Error::Error(
                     ErrorType::BadRequest(BadRequest::BadLen), error_vector()));
-            let data = Message::marshal(TEST_XID, error);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(error));
             let reference = load_reference(&"test/data/error10.data");
 
             assert_eq!(reference, data);
@@ -2113,7 +2023,7 @@ pub mod message {
         #[test]
         fn test_marshal_echo_request() {
             let echo = Message::EchoRequest(echo_vector());
-            let data = Message::marshal(TEST_XID, echo);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
             let reference = load_reference(&"test/data/echo10.data");
 
             assert_eq!(reference, data);
@@ -2138,7 +2048,7 @@ pub mod message {
         #[test]
         fn test_marshal_echo_reply() {
             let echo = Message::EchoReply(echo_vector());
-            let data = Message::marshal(TEST_XID, echo);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
             let reference = load_reference(&"test/data/echo_reply10.data");
 
             assert_eq!(reference, data);
@@ -2163,7 +2073,7 @@ pub mod message {
         #[test]
         fn test_marshal_features_request() {
             let echo = Message::FeaturesReq;
-            let data = Message::marshal(TEST_XID, echo);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
             let reference = load_reference(&"test/data/features_request10.data");
 
             assert_eq!(reference, data);
@@ -2188,7 +2098,7 @@ pub mod message {
         #[ignore] // Not implemented
         fn test_marshal_features_reply() {
             let features = Message::FeaturesReply(switch_features());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/features_reply10.data");
 
             assert_eq!(reference, data);
@@ -2213,7 +2123,7 @@ pub mod message {
         #[test]
         fn test_marshal_flow_mod() {
             let features = Message::FlowMod(flow_mod());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/flowmod10.data");
 
             assert_eq!(reference, data);
@@ -2238,7 +2148,7 @@ pub mod message {
         #[test]
         fn test_marshal_packet_in() {
             let features = Message::PacketIn(packet_in());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/packetin10.data");
 
             assert_eq!(reference, data);
@@ -2263,7 +2173,7 @@ pub mod message {
         #[test]
         fn test_marshal_packet_out() {
             let features = Message::PacketOut(packet_out());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/packetout10.data");
 
             assert_eq!(reference, data);
@@ -2288,7 +2198,7 @@ pub mod message {
         #[test]
         fn test_marshal_barrier_request() {
             let features = Message::BarrierRequest;
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/barrierrequest10.data");
 
             assert_eq!(reference, data);
@@ -2311,7 +2221,7 @@ pub mod message {
         #[test]
         fn test_marshal_barrier_reply() {
             let features = Message::BarrierReply;
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/barrierreply10.data");
 
             assert_eq!(reference, data);
@@ -2334,7 +2244,7 @@ pub mod message {
         #[test]
         fn test_marshal_flow_removed() {
             let features = Message::FlowRemoved(flow_removed());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/flowremoved10.data");
 
             assert_eq!(reference, data);
@@ -2360,7 +2270,7 @@ pub mod message {
         #[ignore]
         fn test_marshal_port_status() {
             let features = Message::PortStatus(port_status());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/portstatus10.data");
 
             assert_eq!(reference, data);
@@ -2385,7 +2295,7 @@ pub mod message {
         #[test]
         fn test_marshal_port_stats_request() {
             let features = Message::StatsRequest(port_stats_request());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/portstatsrequest10.data");
 
             assert_eq!(reference, data);
@@ -2411,7 +2321,7 @@ pub mod message {
         #[test]
         fn test_marshal_desc_stats_request() {
             let features = Message::StatsRequest(desc_stats_request());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/descstatsrequest10.data");
 
             assert_eq!(reference, data);
@@ -2441,7 +2351,7 @@ pub mod message {
             // adapted to this strategy but was verified to be valid. There are multiple correct
             // answers to this particular flow stats request.
             let features = Message::StatsRequest(flow_stats_request());
-            let data = Message::marshal(TEST_XID, features);
+            let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/flowstatsrequest10.data");
 
             assert_eq!(reference, data);
@@ -2522,8 +2432,8 @@ mod tests {
     fn test_mask_serialization() {
         let mask = 8;
         let data = 0;
-        let serialized = Wildcards::set_nw_mask(data, 14, mask);
-        let deserialized = Wildcards::get_nw_mask(serialized, 14);
+        let serialized = Wildcards0x01::set_nw_mask(data, 14, mask);
+        let deserialized = Wildcards0x01::get_nw_mask(serialized, 14);
 
         assert_eq!(mask, deserialized);
     }

@@ -15,11 +15,41 @@ pub struct Wildcards {
     pub nw_tos: bool,
 }
 
+impl Wildcards {
+    fn mask_bits(x: &Option<Mask<u32>>) -> u32 {
+        match *x {
+            None => 32,
+            Some(ref x) => {
+                match x.mask {
+                    None => 0,
+                    Some(m) => m,
+                }
+            }
+        }
+    }
+}
+
 /// How long before a flow entry expires.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Timeout {
     Permanent,
     ExpiresAfter(u16),
+}
+
+impl Timeout {
+    pub fn of_int(tm: u16) -> Timeout {
+        match tm {
+            0 => Timeout::Permanent,
+            d => Timeout::ExpiresAfter(d),
+        }
+    }
+
+    pub fn to_int(tm: Timeout) -> u16 {
+        match tm {
+            Timeout::Permanent => 0,
+            Timeout::ExpiresAfter(d) => d,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -86,6 +116,42 @@ pub struct Pattern {
     pub in_port: Option<u16>,
 }
 
+impl Pattern {
+    pub fn match_all() -> Pattern {
+        Pattern {
+            dl_src: None,
+            dl_dst: None,
+            dl_typ: None,
+            dl_vlan: None,
+            dl_vlan_pcp: None,
+            nw_src: None,
+            nw_dst: None,
+            nw_proto: None,
+            nw_tos: None,
+            tp_src: None,
+            tp_dst: None,
+            in_port: None,
+        }
+    }
+
+    pub fn wildcards_of_pattern(m: &Pattern) -> Wildcards {
+        Wildcards {
+            in_port: m.in_port.is_none(),
+            dl_vlan: m.dl_vlan.is_none(),
+            dl_src: m.dl_src.is_none(),
+            dl_dst: m.dl_dst.is_none(),
+            dl_type: m.dl_typ.is_none(),
+            nw_proto: m.nw_proto.is_none(),
+            tp_src: m.tp_src.is_none(),
+            tp_dst: m.tp_dst.is_none(),
+            nw_src: Wildcards::mask_bits(&m.nw_src),
+            nw_dst: Wildcards::mask_bits(&m.nw_dst),
+            dl_vlan_pcp: m.dl_vlan_pcp.is_none(),
+            nw_tos: m.nw_tos.is_none()
+        }
+    }
+}
+
 /// Port behavior.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PseudoPort {
@@ -150,6 +216,15 @@ pub enum Payload {
     NotBuffered(Vec<u8>),
 }
 
+impl Payload {
+    pub fn size_of(payload: &Payload) -> usize {
+        match *payload {
+            Payload::Buffered(_, ref buf) |
+            Payload::NotBuffered(ref buf) => buf.len(),
+        }
+    }
+}
+
 /// The reason a packet arrives at the controller.
 #[repr(u8)]
 #[derive(Debug, PartialEq, Clone)]
@@ -166,6 +241,12 @@ pub struct PacketIn {
     pub total_len: u16,
     pub port: u16,
     pub reason: PacketInReason,
+}
+
+impl PacketIn {
+    pub fn clone_payload(&self) -> Payload {
+        self.input_payload.clone()
+    }
 }
 
 /// Represents packets sent from the controller.

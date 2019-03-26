@@ -2,13 +2,14 @@ use std::io::Cursor;
 use std::mem::{size_of, transmute};
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
-use rust_ofp::openflow0x01::MsgCode;
+use rust_ofp::openflow::MsgCode;
 
 pub const OFP_HEADER_LENGTH: usize = 8;
 
 pub type Xid = u32;
 
-pub const OPENFLOW_0_01_VERSION: u8 = 1;
+pub const OPENFLOW_0_01_VERSION: u8 = 1; // 1.0
+pub const OPENFLOW_0_04_VERSION: u8 = 4; // 1.3
 
 /// OpenFlow Header
 ///

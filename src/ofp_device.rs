@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::sync::Arc;
 
 use rust_ofp::ofp_message::{ OfpMessage, OfpParsingError };
-use ofp_header::{ OfpHeader, Xid };
+use ofp_header::{OfpHeader, Xid};
 use ofp_serialization;
 
 use bytes::BytesMut;
@@ -217,25 +217,6 @@ pub struct Device {
     writer: Mutex<Sender<(u8, Xid, Message)>>,
 }
 
-impl OfpDevice for Device {
-    type Message = Message;
-
-    fn send_message(&self, xid: Xid, message: Message) {
-        let version = match self.openflow_version {
-            OpenFlowVersion::Known(version) => version,
-            OpenFlowVersion::Unknown => OPENFLOW_0_01_VERSION,
-        };
-
-        let mut writer = self.writer.lock().unwrap();
-        writer.try_send((version, xid, message)).unwrap(); // TODO handle errors
-    }
-
-    fn process_message(&self, header: OfpHeader, message: Message) {
-        let mut processor = self.processor.lock().unwrap();
-        processor.process_message(header, message);
-    }
-}
-
 impl Device {
     pub fn new(stream: TcpStream, tx: Sender<DeviceEvent>) -> Device {
         let (read, write) = stream.split();
@@ -259,6 +240,22 @@ impl Device {
             openflow_version: OpenFlowVersion::Unknown,
             processor
         }
+    }
+
+    // TODO this was in the OfpDevice trait. Do we need this trait?
+    pub fn send_message(&self, xid: Xid, message: Message) {
+        let version = match self.openflow_version {
+            OpenFlowVersion::Known(version) => version,
+            OpenFlowVersion::Unknown => OPENFLOW_0_01_VERSION,
+        };
+
+        let mut writer = self.writer.lock().unwrap();
+        writer.try_send((version, xid, message)).unwrap(); // TODO handle errors
+    }
+
+    pub fn process_message(&self, header: OfpHeader, message: Message) {
+        let mut processor = self.processor.lock().unwrap();
+        processor.process_message(header, message);
     }
 
     pub fn has_device_id(&self, device_id: &DeviceId) -> bool {

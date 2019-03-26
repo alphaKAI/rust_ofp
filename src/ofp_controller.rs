@@ -6,11 +6,13 @@ use futures::sync::mpsc::{Receiver, Sender};
 
 use ofp_header::{Xid, OPENFLOW_0_01_VERSION};
 use rust_ofp::ofp_device::Device;
-use rust_ofp::ofp_device::{ OfpDevice, DeviceId, DeviceEvent };
+use rust_ofp::ofp_device::{ DeviceId, DeviceEvent };
 use rust_ofp::message::Message;
 use std::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
+
+const MAX_SUPPORTED_OF_VERSION: u8 = OPENFLOW_0_01_VERSION;
 
 struct Devices {
     unknown_devices: Vec<Device>,
@@ -160,7 +162,7 @@ impl DeviceController {
     pub fn register_device(&self, stream: TcpStream) {
         let mut device_writer = self.create_device(stream);
         // TODO handle a future properly here to ensure Hello is sent
-        device_writer.try_send((OPENFLOW_0_01_VERSION, 0, Message::Hello)).unwrap();
+        device_writer.try_send((MAX_SUPPORTED_OF_VERSION, 0, Message::Hello)).unwrap();
     }
 
     pub fn register_app(&self, app: Box<DeviceControllerApp + Send + Sync>) {
