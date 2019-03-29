@@ -1,8 +1,9 @@
 use ofp_header::{ OfpHeader, Xid };
 use std::io;
+use openflow::MsgCode;
 
 #[derive(Debug, Fail)]
-pub enum OfpParsingError {
+pub enum OfpSerializationError {
     #[fail(display = "IO Error: {}", error)]
     IoError {
         error: io::Error,
@@ -20,6 +21,11 @@ pub enum OfpParsingError {
     #[fail(display = "Unsupported OpenFlow version: {}", version)]
     UnsupportedVersion {
         version: u8
+    },
+    #[fail(display = "Unsupported OpenFlow message code {} for version: {}", code, version)]
+    UnsupportedMessageCode {
+        version: u8,
+        code: MsgCode
     }
 }
 
@@ -30,10 +36,10 @@ pub trait OfpMessage {
     /// Return the byte-size of an `OfpMessage`.
     fn size_of(&Self) -> usize;
     /// Create an `OfpHeader` for the given transaction id and OpenFlow message.
-    fn header_of(Xid, &Self) -> OfpHeader;
+    fn header_of(Xid, &Self) -> Result<OfpHeader, OfpSerializationError>;
     /// Return a marshaled buffer containing an OpenFlow header and the message `msg`.
-    fn marshal(Xid, Self) -> Vec<u8>;
+    fn marshal(Xid, Self) -> Result<Vec<u8>, OfpSerializationError>;
     /// Returns a pair `(u32, OfpMessage)` of the transaction id and OpenFlow message parsed from
     /// the given OpenFlow header `header`, and buffer `buf`.
-    fn parse(&OfpHeader, &[u8]) -> Result<(Xid, Self), OfpParsingError> where Self: Sized;
+    fn parse(&OfpHeader, &[u8]) -> Result<(Xid, Self), OfpSerializationError> where Self: Sized;
 }

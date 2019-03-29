@@ -10,7 +10,7 @@ use std::fmt;
 use std::sync::Mutex;
 use std::sync::Arc;
 
-use rust_ofp::ofp_message::{ OfpMessage, OfpParsingError };
+use rust_ofp::ofp_message::{OfpMessage, OfpSerializationError};
 use ofp_header::{OfpHeader, Xid};
 use ofp_serialization;
 
@@ -394,7 +394,7 @@ impl OfpMessageReader {
         return (len_1 << 8) + len_2
     }
 
-    fn parse_message(&mut self) -> Result<(OfpHeader, Message), OfpParsingError> {
+    fn parse_message(&mut self) -> Result<(OfpHeader, Message), OfpSerializationError> {
         let body_length = self.get_header_length() - OfpHeader::size();
         let header_data = self.rd.split_to(OfpHeader::size());
         let data = self.rd.split_to(body_length);
@@ -407,7 +407,7 @@ impl OfpMessageReader {
 
 impl Stream for OfpMessageReader {
     type Item = (OfpHeader, Message);
-    type Error = OfpParsingError;
+    type Error = OfpSerializationError;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         let res = self.read_message_data();
@@ -494,8 +494,17 @@ impl Future for OfpMessageWriter {
             match res {
                 Some((version, xid, message)) => {
                     let raw_msg = ofp_serialization::marshal(version, xid, message);
-                    self.message.replace(raw_msg);
-                    try_ready!(self.send_current_message());
+                    match raw_msg {
+                        Ok(msg) => {
+                            self.message.replace(msg);
+                            try_ready!(self.send_current_message());
+                        },
+                        Err(e) => {
+                            // TODO put message in error log. It shouldn't be moved.
+                            warn!("Failed to serialize message. Error: {}", e);
+                            continue;
+                        }
+                    }
                 },
                 None => {
                     return Ok(Async::Ready(()));

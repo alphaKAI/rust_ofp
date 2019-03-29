@@ -9,7 +9,7 @@ use bits::*;
 use packet::{bytes_of_mac, mac_of_bytes};
 
 use message::*;
-use ofp_message::OfpParsingError;
+use ofp_message::OfpSerializationError;
 use ofp_utils::{write_padding_bytes, read_fixed_size_string};
 
 const OFP_MAX_TABLE_NAME_LENGTH: usize = 32;
@@ -23,7 +23,7 @@ pub trait MessageType {
     /// Return the byte-size of a message.
     fn size_of(&Self) -> usize;
     /// Parse a buffer into a message.
-    fn parse(buf: &[u8]) -> Result<Self, OfpParsingError> where Self: Sized;
+    fn parse(buf: &[u8]) -> Result<Self, OfpSerializationError> where Self: Sized;
     /// Marshal a message into a `u8` buffer.
     fn marshal(Self, &mut Vec<u8>);
 }
@@ -273,7 +273,7 @@ pub enum OfpPort {
 create_empty_wrapper!(PseudoPort, PseudoPort0x01);
 
 impl PseudoPort0x01 {
-    fn of_int(p: u16) -> Result<Option<PseudoPort>, OfpParsingError> {
+    fn of_int(p: u16) -> Result<Option<PseudoPort>, OfpSerializationError> {
         if (OfpPort::OFPPNone as u16) == p {
             Ok(None)
         } else {
@@ -281,7 +281,7 @@ impl PseudoPort0x01 {
         }
     }
 
-    fn make(p: u16, len: u64) -> Result<PseudoPort, OfpParsingError> {
+    fn make(p: u16, len: u64) -> Result<PseudoPort, OfpSerializationError> {
         let res = match p {
             p if p == (OfpPort::OFPPInPort as u16) => PseudoPort::InPort,
             p if p == (OfpPort::OFPPTable as u16) => PseudoPort::Table,
@@ -294,7 +294,7 @@ impl PseudoPort0x01 {
                 if p <= (OfpPort::OFPPMax as u16) {
                     PseudoPort::PhysicalPort(p)
                 } else {
-                    return Err(OfpParsingError::UnexpectedValueError {
+                    return Err(OfpSerializationError::UnexpectedValueError {
                         value: format!("{:x}", p),
                         field: "port number".to_string(),
                         message: "".to_string()
@@ -403,7 +403,7 @@ impl Action0x01 {
         actions.iter().fold(0, |acc, x| Action0x01::size_of(x) + acc)
     }
 
-    fn _parse(bytes: &mut Cursor<Vec<u8>>) -> Result<Action, OfpParsingError> {
+    fn _parse(bytes: &mut Cursor<Vec<u8>>) -> Result<Action, OfpSerializationError> {
         let action_code = bytes.read_u16::<BigEndian>().unwrap();
         let _ = bytes.read_u16::<BigEndian>().unwrap();
         let action = match action_code {
@@ -474,7 +474,7 @@ impl Action0x01 {
                 Action::Enqueue(PseudoPort0x01::make(pt, 0)?, qid)
             }
             t => {
-                return Result::Err(OfpParsingError::UnexpectedValueError {
+                return Result::Err(OfpSerializationError::UnexpectedValueError {
                     value: format!("0x{:x}", t),
                     field: "type".to_string(),
                     message: "action".to_string()
@@ -484,7 +484,7 @@ impl Action0x01 {
         Ok(action)
     }
 
-    fn parse_sequence(bytes: &mut Cursor<Vec<u8>>) -> Result<Vec<Action>, OfpParsingError> {
+    fn parse_sequence(bytes: &mut Cursor<Vec<u8>>) -> Result<Vec<Action>, OfpSerializationError> {
         if bytes.remaining() == 0 {
             Ok(vec![])
         } else {
@@ -571,7 +571,7 @@ impl MessageType for SwitchFeatures {
         size_of::<OfpSwitchFeatures>() + pds
     }
 
-    fn parse(buf: &[u8]) -> Result<SwitchFeatures, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<SwitchFeatures, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let datapath_id = bytes.read_u64::<BigEndian>().unwrap();
         let num_buffers = bytes.read_u32::<BigEndian>().unwrap();
@@ -655,7 +655,7 @@ impl MessageType for FlowMod {
         Action0x01::size_of_sequence(&msg.actions)
     }
 
-    fn parse(buf: &[u8]) -> Result<FlowMod, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<FlowMod, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let pattern = Pattern0x01::parse(&mut bytes);
         let cookie = bytes.read_u64::<BigEndian>().unwrap();
@@ -765,7 +765,7 @@ impl MessageType for StatsReq {
             }
     }
 
-    fn parse(buf: &[u8]) -> Result<StatsReq, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<StatsReq, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let req_type = StatsReqType0x01::from_u16(bytes.read_u16::<BigEndian>().unwrap());
         let flags = bytes.read_u16::<BigEndian>().unwrap();
@@ -899,7 +899,7 @@ impl MessageType for StatsResp {
             }
     }
 
-    fn parse(buf: &[u8]) -> Result<StatsResp, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<StatsResp, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let req_type = StatsReqType0x01::from_u16(bytes.read_u16::<BigEndian>().unwrap());
         let flags = bytes.read_u16::<BigEndian>().unwrap();
@@ -1125,7 +1125,7 @@ impl MessageType for PacketIn {
         size_of::<OfpPacketIn>() + Payload::size_of(&pi.input_payload)
     }
 
-    fn parse(buf: &[u8]) -> Result<PacketIn, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<PacketIn, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let buf_id = match bytes.read_i32::<BigEndian>().unwrap() {
             -1 => None,
@@ -1171,7 +1171,7 @@ impl MessageType for PacketOut {
         Payload::size_of(&po.output_payload)
     }
 
-    fn parse(buf: &[u8]) -> Result<PacketOut, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<PacketOut, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let buf_id = match bytes.read_i32::<BigEndian>().unwrap() {
             -1 => None,
@@ -1225,7 +1225,7 @@ impl MessageType for FlowRemoved {
         Pattern0x01::size_of(&f.pattern) + size_of::<OfpFlowRemoved>()
     }
 
-    fn parse(buf: &[u8]) -> Result<FlowRemoved, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<FlowRemoved, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let pattern = Pattern0x01::parse(&mut bytes);
         let cookie = bytes.read_i64::<BigEndian>().unwrap();
@@ -1297,7 +1297,7 @@ impl PortDesc0x01 {
         size_of::<OfpPhyPort>()
     }
 
-    fn parse(bytes: &mut Cursor<Vec<u8>>) -> Result<PortDesc, OfpParsingError> {
+    fn parse(bytes: &mut Cursor<Vec<u8>>) -> Result<PortDesc, OfpSerializationError> {
         let port_no = bytes.read_u16::<BigEndian>().unwrap();
         let hw_addr = {
             let mut arr: [u8; 6] = [0; 6];
@@ -1336,7 +1336,7 @@ impl PortDesc0x01 {
                         StpState::Block
                     } else {
                         return Err(
-                            OfpParsingError::UnexpectedValueError {
+                            OfpSerializationError::UnexpectedValueError {
                                 value: format!("{:x}", d_masked),
                                 field: "ofp_port_state/stp_state".to_string(),
                                 message: "Port Description".to_string(),
@@ -1369,7 +1369,7 @@ impl MessageType for PortStatus {
         size_of::<PortReason>() + size_of::<OfpPhyPort>()
     }
 
-    fn parse(buf: &[u8]) -> Result<PortStatus, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<PortStatus, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let reason = unsafe { transmute(bytes.read_u8().unwrap()) };
         bytes.consume(7);
@@ -1393,7 +1393,7 @@ impl MessageType for Error {
         }
     }
 
-    fn parse(buf: &[u8]) -> Result<Error, OfpParsingError> {
+    fn parse(buf: &[u8]) -> Result<Error, OfpSerializationError> {
         let mut bytes = Cursor::new(buf.to_vec());
         let error_type = bytes.read_u16::<BigEndian>().unwrap();
         let error_code = bytes.read_u16::<BigEndian>().unwrap();
@@ -1405,7 +1405,7 @@ impl MessageType for Error {
             4 => ErrorType::PortModFailed(unsafe { transmute(error_code) }),
             5 => ErrorType::QueueOpFailed(unsafe { transmute(error_code) }),
             _ => {
-                return Err(OfpParsingError::UnexpectedValueError {
+                return Err(OfpSerializationError::UnexpectedValueError {
                     value: format!("{:x}", error_type),
                     field: "error type".to_string(),
                     message: "error".to_string()
@@ -1422,8 +1422,8 @@ impl MessageType for Error {
 pub mod message {
     use super::*;
     use std::io::Write;
-    use ofp_header::OfpHeader;
-    use ofp_message::{ OfpMessage, OfpParsingError };
+    use ofp_header::{OfpHeader, OPENFLOW_0_01_VERSION};
+    use ofp_message::{OfpMessage, OfpSerializationError};
     use packet::Packet;
     use openflow::MsgCode;
 
@@ -1462,6 +1462,41 @@ pub mod message {
                 Message::StatsRequest(_) => MsgCode::StatsReq,
                 Message::StatsReply(_) => MsgCode::StatsResp,
             }
+        }
+
+        fn msg_code_to_u8(msgcode: &MsgCode) -> Result<u8, OfpSerializationError> {
+            match msgcode {
+                MsgCode::Hello => Ok(0),
+                MsgCode::Error => Ok(1),
+                MsgCode::EchoReq => Ok(2),
+                MsgCode::EchoResp => Ok(3),
+                MsgCode::Vendor => Ok(4),
+                MsgCode::FeaturesReq => Ok(5),
+                MsgCode::FeaturesResp => Ok(6),
+                MsgCode::GetConfigReq => Ok(7),
+                MsgCode::GetConfigResp => Ok(8),
+                MsgCode::SetConfig => Ok(9),
+                MsgCode::PacketIn => Ok(10),
+                MsgCode::FlowRemoved => Ok(11),
+                MsgCode::PortStatus => Ok(12),
+                MsgCode::PacketOut => Ok(13),
+                MsgCode::FlowMod => Ok(14),
+                MsgCode::PortMod => Ok(15),
+                MsgCode::StatsReq => Ok(16),
+                MsgCode::StatsResp => Ok(17),
+                MsgCode::BarrierReq => Ok(18),
+                MsgCode::BarrierResp => Ok(19),
+                MsgCode::QueueGetConfigReq => Ok(20),
+                MsgCode::QueueGetConfigResp => Ok(21),
+                c => Err(OfpSerializationError::UnsupportedMessageCode {
+                    version: OPENFLOW_0_01_VERSION,
+                    code: *c
+                })
+            }
+        }
+
+        fn msg_code_of_message_u8(msg: &Message) -> Result<u8, OfpSerializationError> {
+            Self::msg_code_to_u8(&Self::msg_code_of_message(msg))
         }
 
         /// Marshal the OpenFlow message `msg`.
@@ -1506,23 +1541,23 @@ pub mod message {
             }
         }
 
-        fn header_of(xid: u32, msg: &Message0x01) -> OfpHeader {
+        fn header_of(xid: u32, msg: &Message0x01) -> Result<OfpHeader, OfpSerializationError> {
             let sizeof_buf = Self::size_of(&msg);
-            OfpHeader::new(0x01,
-                           Self::msg_code_of_message(&msg.inner) as u8,
+            Ok(OfpHeader::new(OPENFLOW_0_01_VERSION,
+                           Self::msg_code_of_message_u8(&msg.inner)?,
                            sizeof_buf as u16,
-                           xid)
+                           xid))
         }
 
-        fn marshal(xid: u32, msg: Message0x01) -> Vec<u8> {
+        fn marshal(xid: u32, msg: Message0x01) -> Result<Vec<u8>, OfpSerializationError> {
             let hdr = Self::header_of(xid, &msg);
             let mut bytes = vec![];
-            OfpHeader::marshal(&mut bytes, hdr);
+            OfpHeader::marshal(&mut bytes, hdr?);
             Message0x01::marshal_body(msg.inner, &mut bytes);
-            bytes
+            Ok(bytes)
         }
 
-        fn parse(header: &OfpHeader, buf: &[u8]) -> Result<(u32, Message0x01), OfpParsingError> {
+        fn parse(header: &OfpHeader, buf: &[u8]) -> Result<(u32, Message0x01), OfpSerializationError> {
             let typ = header.type_code();
             let msg = Message0x01 { inner: match typ {
                 MsgCode::Hello => {
@@ -1562,7 +1597,7 @@ pub mod message {
                 MsgCode::BarrierReq => Message::BarrierRequest,
                 MsgCode::BarrierResp => Message::BarrierReply,
                 MsgCode::StatsResp => Message::StatsReply(StatsResp::parse(buf)?),
-                code => return Result::Err(OfpParsingError::UnexpectedValueError {
+                code => return Result::Err(OfpSerializationError::UnexpectedValueError {
                     value: format!("0x{:x}", code as u8),
                     field: "message type".to_string(),
                     message: "message header".to_string()
@@ -1974,7 +2009,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(hello));
             let reference = load_reference(&"test/data/hello10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2000,7 +2035,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(error));
             let reference = load_reference(&"test/data/error10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2026,7 +2061,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
             let reference = load_reference(&"test/data/echo10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2051,7 +2086,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
             let reference = load_reference(&"test/data/echo_reply10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2076,7 +2111,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
             let reference = load_reference(&"test/data/features_request10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2101,7 +2136,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/features_reply10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2126,7 +2161,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/flowmod10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2151,7 +2186,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/packetin10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2176,7 +2211,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/packetout10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2201,7 +2236,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/barrierrequest10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2224,7 +2259,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/barrierreply10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2247,7 +2282,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/flowremoved10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2273,7 +2308,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/portstatus10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2298,7 +2333,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/portstatsrequest10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2324,7 +2359,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/descstatsrequest10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]
@@ -2354,7 +2389,7 @@ pub mod message {
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
             let reference = load_reference(&"test/data/flowstatsrequest10.data");
 
-            assert_eq!(reference, data);
+            assert_eq!(reference, data.unwrap());
         }
 
         #[test]

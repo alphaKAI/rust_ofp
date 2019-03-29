@@ -577,6 +577,7 @@ pub enum Error {
 }
 
 /// Abstractions of OpenFlow 1.0 messages mapping to message codes.
+#[derive(Debug)]
 pub enum Message {
     Hello,
     Error(Error),
