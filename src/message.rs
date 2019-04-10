@@ -64,7 +64,9 @@ pub struct Capabilities {
     pub flow_stats: bool,
     pub table_stats: bool,
     pub port_stats: bool,
+    pub group_stats: bool,
     pub stp: bool,
+    pub port_blocked: bool,
     pub ip_reasm: bool,
     pub queue_stats: bool,
     pub arp_match_ip: bool,
@@ -88,15 +90,17 @@ pub struct SupportedActions {
     pub vendor: bool,
 }
 
+// TODO this should be stored with the Device
 /// Switch features.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SwitchFeatures {
     pub datapath_id: u64,
     pub num_buffers: u32,
     pub num_tables: u8,
+    pub auxiliary_id: u8,
     pub supported_capabilities: Capabilities,
-    pub supported_actions: SupportedActions,
-    pub ports: Vec<PortDesc>,
+    pub supported_actions: Option<SupportedActions>,
+    pub ports: Option<Vec<PortDesc>>,
 }
 
 /// Fields to match against flows.
@@ -176,9 +180,16 @@ pub enum FlowModCmd {
     DeleteStrictFlow,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct TableId(pub u8);
+
+impl TableId {
+}
+
 /// Represents modifications to a flow table from the controller.
 #[derive(Debug, PartialEq)]
 pub struct FlowMod {
+    pub table: TableId,
     pub command: FlowModCmd,
     pub pattern: Pattern,
     pub priority: u16,

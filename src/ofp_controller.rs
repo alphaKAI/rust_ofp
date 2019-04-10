@@ -4,7 +4,7 @@ use tokio::prelude::*;
 use futures::sync::mpsc;
 use futures::sync::mpsc::{Receiver, Sender};
 
-use ofp_header::{Xid, OPENFLOW_0_01_VERSION};
+use ofp_header::{Xid, OPENFLOW_0_04_VERSION};
 use rust_ofp::ofp_device::Device;
 use rust_ofp::ofp_device::{ DeviceId, DeviceEvent };
 use rust_ofp::message::Message;
@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
 
-const MAX_SUPPORTED_OF_VERSION: u8 = OPENFLOW_0_01_VERSION;
+const MAX_SUPPORTED_OF_VERSION: u8 = OPENFLOW_0_04_VERSION;
 
 struct Devices {
     unknown_devices: Vec<Device>,

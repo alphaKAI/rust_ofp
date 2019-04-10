@@ -32,6 +32,7 @@ pub mod ofp_serialization;
 pub mod message;
 pub mod openflow;
 pub mod openflow0x01;
+pub mod openflow0x04;
 pub mod packet;
 
 mod rust_ofp {

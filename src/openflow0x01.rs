@@ -17,6 +17,7 @@ const DESC_STR_LENGTH: usize = 256;
 const SERIAL_NUM_LENGTH: usize = 32;
 
 pub const ALL_TABLES: u8 = 0xff;
+const MAIN_CONNECTION: u8 = 0;
 
 /// Common API for message types implementing OpenFlow Message Codes (see `MsgCode` enum).
 pub trait MessageType {
@@ -567,7 +568,12 @@ struct OfpSwitchFeatures(u64, u32, u8, [u8; 3], u32, u32);
 
 impl MessageType for SwitchFeatures {
     fn size_of(sf: &SwitchFeatures) -> usize {
-        let pds: usize = sf.ports.iter().map(|pd| PortDesc0x01::size_of(pd)).sum();
+        let pds: usize = match &sf.ports {
+            Some(ports) => {
+                ports.iter().map(|pd| PortDesc0x01::size_of(pd)).sum()
+            },
+            None => 0
+        };
         size_of::<OfpSwitchFeatures>() + pds
     }
 
@@ -579,14 +585,17 @@ impl MessageType for SwitchFeatures {
         bytes.consume(3);
         let supported_capabilities = {
             let d = bytes.read_u32::<BigEndian>().unwrap();
+            let stp = test_bit(3, d as u64);
             Capabilities {
                 flow_stats: test_bit(0, d as u64),
                 table_stats: test_bit(1, d as u64),
                 port_stats: test_bit(2, d as u64),
-                stp: test_bit(3, d as u64),
+                stp,
+                port_blocked: stp,
                 ip_reasm: test_bit(5, d as u64),
                 queue_stats: test_bit(6, d as u64),
                 arp_match_ip: test_bit(7, d as u64),
+                group_stats: false,
             }
         };
         let supported_actions = {
@@ -622,8 +631,9 @@ impl MessageType for SwitchFeatures {
             num_buffers: num_buffers,
             num_tables: num_tables,
             supported_capabilities: supported_capabilities,
-            supported_actions: supported_actions,
-            ports: ports,
+            supported_actions: Some(supported_actions),
+            ports: Some(ports),
+            auxiliary_id: MAIN_CONNECTION
         })
     }
 
@@ -668,6 +678,7 @@ impl MessageType for FlowMod {
         let flags = bytes.read_u16::<BigEndian>().unwrap();
         let actions = Action0x01::parse_sequence(&mut bytes)?;
         Ok(FlowMod {
+            table: TableId(0),
             command: command,
             pattern: pattern,
             priority: prio,
@@ -1611,6 +1622,7 @@ pub mod message {
     /// and `actions`.
     pub fn add_flow(prio: u16, pattern: Pattern, actions: Vec<Action>) -> FlowMod {
         FlowMod {
+            table: TableId(0),
             command: FlowModCmd::AddFlow,
             pattern: pattern,
             priority: prio,
@@ -1738,6 +1750,7 @@ pub mod message {
                 datapath_id: TEST_DPID,
                 num_buffers: 200,
                 num_tables: 254,
+                auxiliary_id: 0,
                 supported_capabilities: Capabilities {
                     flow_stats: true,
                     table_stats: true,
@@ -1746,8 +1759,10 @@ pub mod message {
                     ip_reasm: false,
                     queue_stats: false,
                     arp_match_ip: false,
+                    group_stats: false,
+                    port_blocked: false
                 },
-                supported_actions: SupportedActions {
+                supported_actions: Some(SupportedActions {
                     output: true,
                     set_vlan_id: false,
                     set_vlan_pcp: false,
@@ -1761,8 +1776,8 @@ pub mod message {
                     set_tp_dst: true,
                     enqueue: false,
                     vendor: false,
-                },
-                ports: switch_ports(),
+                }),
+                ports: Some(switch_ports()),
             }
         }
 
@@ -1797,6 +1812,7 @@ pub mod message {
 
         fn flow_mod() -> FlowMod {
             FlowMod {
+                table: TableId(0),
                 command: FlowModCmd::AddFlow,
                 pattern: flow_mod_pattern(),
                 priority: 16,

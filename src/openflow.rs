@@ -8,7 +8,7 @@ pub enum MsgCode {
     Error,
     EchoReq,
     EchoResp,
-    Vendor,
+    Experimenter,
     FeaturesReq,
     FeaturesResp,
     GetConfigReq,
@@ -19,13 +19,26 @@ pub enum MsgCode {
     PortStatus,
     PacketOut,
     FlowMod,
+    GroupMod,
     PortMod,
-    StatsReq,
-    StatsResp,
+    TableMod,
+    MultipartReq,
+    MultipartResp,
     BarrierReq,
     BarrierResp,
     QueueGetConfigReq,
     QueueGetConfigResp,
+    RoleReq,
+    RoleResp,
+    GetAsyncReq,
+    GetAsyncResp,
+    SetAsync,
+    MeterMod,
+
+    // 1.0
+    Vendor,
+    StatsReq,
+    StatsResp,
 }
 
 impl Display for MsgCode {
@@ -53,6 +66,17 @@ impl Display for MsgCode {
             MsgCode::BarrierResp => "BarrierResp",
             MsgCode::QueueGetConfigReq => "QueueGetConfigReq",
             MsgCode::QueueGetConfigResp => "QueueGetConfigResp",
+            MsgCode::Experimenter => "Experimenter",
+            MsgCode::GroupMod => "GroupMod",
+            MsgCode::TableMod => "TableMod",
+            MsgCode::MultipartReq => "MultipartReq",
+            MsgCode::MultipartResp => "MultipartResp",
+            MsgCode::RoleReq => "RoleReq",
+            MsgCode::RoleResp => "RoleResp",
+            MsgCode::GetAsyncReq => "GetAsyncReq",
+            MsgCode::GetAsyncResp => "GetAsyncResp",
+            MsgCode::SetAsync => "SetAsync",
+            MsgCode::MeterMod => "MeterMod"
         };
         f.write_str(text)
     }
