@@ -24,7 +24,7 @@ use message::FlowMod;
 ///    it forwards the packet directly on the associated port. If the location of
 ///    the destination is unknown, it floods the packet out all ports.
 pub struct LearningSwitch {
-    known_hosts: HashMap<u64, u16>,
+    known_hosts: HashMap<u64, u32>,
     controller: Arc<DeviceController>
 }
 

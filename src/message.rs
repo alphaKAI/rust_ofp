@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Wildcards {
@@ -159,7 +160,7 @@ impl Pattern {
 /// Port behavior.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PseudoPort {
-    PhysicalPort(u16),
+    PhysicalPort(u32),
     InPort,
     Table,
     Normal,
@@ -178,6 +179,15 @@ pub enum FlowModCmd {
     ModStrictFlow,
     DeleteFlow,
     DeleteStrictFlow,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct GroupId(pub u32);
+
+impl GroupId {
+    pub fn id(&self) -> u32 {
+        self.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
@@ -207,6 +217,7 @@ pub struct FlowMod {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Action {
     Output(PseudoPort),
+    Group(GroupId),
     SetDlVlan(Option<u16>),
     SetDlVlanPcp(u8),
     // TODO update those to use a MacAddress struct instead of bytes
@@ -218,6 +229,19 @@ pub enum Action {
     SetTpSrc(u16),
     SetTpDst(u16),
     Enqueue(PseudoPort, u32),
+}
+
+impl Display for Action {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        let text = match self {
+            Action::Output(_) => "output",
+            Action::Group(_) => "group",
+
+            // TODO add all Actions here
+            _ => "-- FIXME --"
+        };
+        f.write_str(text)
+    }
 }
 
 /// The data associated with a packet received by the controller.
@@ -250,7 +274,7 @@ pub enum PacketInReason {
 pub struct PacketIn {
     pub input_payload: Payload,
     pub total_len: u16,
-    pub port: u16,
+    pub port: u32,
     pub reason: PacketInReason,
 }
 
@@ -264,7 +288,7 @@ impl PacketIn {
 #[derive(Debug, PartialEq)]
 pub struct PacketOut {
     pub output_payload: Payload,
-    pub port_id: Option<u16>,
+    pub port_id: Option<u32>,
     pub apply_actions: Vec<Action>,
 }
 
