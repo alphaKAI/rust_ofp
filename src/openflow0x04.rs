@@ -16,13 +16,13 @@ pub const ALL_TABLES: u8 = 0xff;
 /// Common API for message types implementing OpenFlow Message Codes (see `MsgCode` enum).
 pub trait MessageType {
     /// Return the byte-size of a message.
-    fn size_of(&Self) -> usize;
+    fn size_of(_: &Self) -> usize;
     /// Parse a buffer into a message.
     fn parse(buf: &[u8]) -> Result<Self, OfpSerializationError>
     where
         Self: Sized;
     /// Marshal a message into a `u8` buffer.
-    fn marshal(Self, &mut Vec<u8>);
+    fn marshal(_: Self, _: &mut Vec<u8>);
 }
 
 #[repr(u16)]
@@ -168,7 +168,7 @@ impl Action0x04 {
         h + body
     }
 
-    fn size_of_sequence(actions: &Vec<Action>) -> usize {
+    fn size_of_sequence(actions: &[Action]) -> usize {
         actions
             .iter()
             .fold(0, |acc, x| Action0x04::size_of(x) + acc)
@@ -203,16 +203,16 @@ impl Action0x04 {
             }
             t if t == (OfpActionType::OFPATSetDlSrc as u16) => {
                 let mut dl_addr: [u8; 6] = [0; 6];
-                for i in 0..6 {
-                    dl_addr[i] = bytes.read_u8().unwrap();
+                for e in &mut dl_addr {
+                    *e = bytes.read_u8().unwrap();
                 }
                 bytes.consume(6);
                 Action::SetDlSrc(mac_of_bytes(dl_addr))
             }
             t if t == (OfpActionType::OFPATSetDlDst as u16) => {
                 let mut dl_addr: [u8; 6] = [0; 6];
-                for i in 0..6 {
-                    dl_addr[i] = bytes.read_u8().unwrap();
+                for e in &mut dl_addr {
+                    *e = bytes.read_u8().unwrap();
                 }
                 bytes.consume(6);
                 Action::SetDlDst(mac_of_bytes(dl_addr))
@@ -267,11 +267,9 @@ impl Action0x04 {
     }
 
     fn move_controller_last(acts: Vec<Action>) -> Vec<Action> {
-        let (mut to_ctrl, mut not_to_ctrl): (Vec<Action>, Vec<Action>) =
-            acts.into_iter().partition(|act| match *act {
-                Action::Output(PseudoPort::Controller(_)) => true,
-                _ => false,
-            });
+        let (mut to_ctrl, mut not_to_ctrl): (Vec<Action>, Vec<Action>) = acts
+            .into_iter()
+            .partition(|act| matches!(*act, Action::Output(PseudoPort::Controller(_))));
         not_to_ctrl.append(&mut to_ctrl);
         not_to_ctrl
     }
@@ -306,8 +304,8 @@ impl Action0x04 {
             }
             Action::SetDlSrc(mac) | Action::SetDlDst(mac) => {
                 let mac = bytes_of_mac(mac);
-                for i in 0..6 {
-                    bytes.write_u8(mac[i]).unwrap();
+                for t in &mac {
+                    bytes.write_u8(*t).unwrap();
                 }
                 for _ in 0..6 {
                     bytes.write_u8(0).unwrap();
@@ -344,7 +342,7 @@ impl MessageType for SwitchFeatures {
     fn size_of(sf: &SwitchFeatures) -> usize {
         // TODO same code as 1.0 (refactor)
         let pds: usize = match &sf.ports {
-            Some(ports) => ports.iter().map(|pd| PortDesc0x04::size_of(pd)).sum(),
+            Some(ports) => ports.iter().map(PortDesc0x04::size_of).sum(),
             None => 0,
         };
         size_of::<OfpSwitchFeatures>() + pds
@@ -427,9 +425,9 @@ impl MessageType for PacketIn {
         };
         Ok(PacketIn {
             input_payload: payload,
-            total_len: total_len,
-            port: port,
-            reason: reason,
+            total_len,
+            port,
+            reason,
         })
     }
 
@@ -543,8 +541,8 @@ impl PortDesc0x04 {
         let port_no = bytes.read_u16::<BigEndian>().unwrap();
         let hw_addr = {
             let mut arr: [u8; 6] = [0; 6];
-            for i in 0..6 {
-                arr[i] = bytes.read_u8().unwrap();
+            for e in &mut arr {
+                *e = bytes.read_u8().unwrap();
             }
             mac_of_bytes(arr)
         };
@@ -591,15 +589,15 @@ impl PortDesc0x04 {
         let supported = PortFeatures0x04::of_int(bytes.read_u32::<BigEndian>().unwrap());
         let peer = PortFeatures0x04::of_int(bytes.read_u32::<BigEndian>().unwrap());
         Ok(PortDesc {
-            port_no: port_no,
-            hw_addr: hw_addr,
-            name: name,
-            config: config,
-            state: state,
-            curr: curr,
-            advertised: advertised,
-            supported: supported,
-            peer: peer,
+            port_no,
+            hw_addr,
+            name,
+            config,
+            state,
+            curr,
+            advertised,
+            supported,
+            peer,
         })
     }
 }
@@ -614,10 +612,7 @@ impl MessageType for PortStatus {
         let reason = unsafe { transmute(bytes.read_u8().unwrap()) };
         bytes.consume(7);
         let desc = PortDesc0x04::parse(&mut bytes)?;
-        Ok(PortStatus {
-            reason: reason,
-            desc: desc,
-        })
+        Ok(PortStatus { reason, desc })
     }
 
     fn marshal(_: PortStatus, _: &mut Vec<u8>) {}
@@ -779,7 +774,7 @@ pub mod message {
         }
 
         fn header_of(xid: u32, msg: &Message0x04) -> Result<OfpHeader, OfpSerializationError> {
-            let sizeof_buf = Self::size_of(&msg);
+            let sizeof_buf = Self::size_of(msg);
             Ok(OfpHeader::new(
                 OPENFLOW_0_04_VERSION,
                 Self::msg_code_of_message_u8(&msg.inner)?,

@@ -31,14 +31,14 @@ pub enum OfpSerializationError {
 /// Version-agnostic API for handling OpenFlow messages at the byte-buffer level.
 pub trait OfpMessage {
     /// Return the byte-size of an `OfpMessage`.
-    fn size_of(&Self) -> usize;
+    fn size_of(_: &Self) -> usize;
     /// Create an `OfpHeader` for the given transaction id and OpenFlow message.
-    fn header_of(Xid, &Self) -> Result<OfpHeader, OfpSerializationError>;
+    fn header_of(_: Xid, _: &Self) -> Result<OfpHeader, OfpSerializationError>;
     /// Return a marshaled buffer containing an OpenFlow header and the message `msg`.
-    fn marshal(Xid, Self) -> Result<Vec<u8>, OfpSerializationError>;
+    fn marshal(_: Xid, _: Self) -> Result<Vec<u8>, OfpSerializationError>;
     /// Returns a pair `(u32, OfpMessage)` of the transaction id and OpenFlow message parsed from
     /// the given OpenFlow header `header`, and buffer `buf`.
-    fn parse(&OfpHeader, &[u8]) -> Result<(Xid, Self), OfpSerializationError>
+    fn parse(_: &OfpHeader, _: &[u8]) -> Result<(Xid, Self), OfpSerializationError>
     where
         Self: Sized;
 }

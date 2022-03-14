@@ -76,7 +76,7 @@ impl DeviceState {
     }
 
     pub fn get_device_id(&self) -> Option<DeviceId> {
-        return self.switch_id.clone();
+        self.switch_id
     }
 }
 
@@ -148,16 +148,16 @@ impl MessageProcessor {
                 }
 
                 let switch_id = DeviceId(feats.datapath_id);
-                state.switch_id = Some(switch_id.clone());
+                state.switch_id = Some(switch_id);
                 send_to_controller = Some(DeviceEvent::SwitchConnected(switch_id));
             }
             Message::PacketIn(pkt) => {
-                let mut state = self.state.lock().unwrap();
+                let state = self.state.lock().unwrap();
                 let device_id = state.get_device_id().unwrap();
                 send_to_controller = Some(DeviceEvent::PacketIn(device_id, pkt));
             }
             Message::StatsReply(stats) => {
-                let mut state = self.state.lock().unwrap();
+                let state = self.state.lock().unwrap();
                 let device_id = state.get_device_id().unwrap();
                 send_to_controller = self.handle_stats(device_id, stats);
             }
@@ -170,11 +170,8 @@ impl MessageProcessor {
             | Message::StatsRequest(_) => (),
         }
 
-        match send_to_controller {
-            Some(event) => {
-                self.tx.try_send(event).unwrap();
-            }
-            None => {}
+        if let Some(event) = send_to_controller {
+            self.tx.try_send(event).unwrap();
         }
     }
 
@@ -392,7 +389,7 @@ impl OfpMessageReader {
         let len_1 = *self.rd.get(2).unwrap() as usize;
         let len_2 = *self.rd.get(3).unwrap() as usize;
 
-        return (len_1 << 8) + len_2;
+        (len_1 << 8) + len_2
     }
 
     fn parse_message(&mut self) -> Result<(OfpHeader, Message), OfpSerializationError> {
@@ -486,7 +483,7 @@ impl Future for OfpMessageWriter {
 
         const MESSAGES_PER_TICK: usize = 10;
         for _ in 0..MESSAGES_PER_TICK {
-            let mut res = try_ready!(self.rx.poll());
+            let res = try_ready!(self.rx.poll());
             match res {
                 Some((version, xid, message)) => {
                     let raw_msg = ofp_serialization::marshal(version, xid, message);

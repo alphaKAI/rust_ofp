@@ -1,6 +1,6 @@
 #![crate_name = "rust_ofp"]
 #![crate_type = "lib"]
-
+#![allow(clippy::unused_io_amount)]
 extern crate byteorder;
 extern crate tokio;
 #[macro_use]

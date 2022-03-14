@@ -79,7 +79,7 @@ impl StatsProbing {
         StatsProbing { controller }
     }
 
-    fn print_port_stats(&self, device_id: &DeviceId, port_stats: &Vec<PortStats>) {
+    fn print_port_stats(&self, device_id: &DeviceId, port_stats: &[PortStats]) {
         for port in port_stats {
             self.print_single_port_stats(device_id, port);
         }
@@ -97,7 +97,7 @@ impl StatsProbing {
         );
     }
 
-    fn print_flow_stats(&self, device_id: &DeviceId, flow_stats: &Vec<FlowStats>) {
+    fn print_flow_stats(&self, device_id: &DeviceId, flow_stats: &[FlowStats]) {
         for flow in flow_stats {
             self.print_single_flow_stats(device_id, flow);
         }
@@ -113,7 +113,7 @@ impl StatsProbing {
         );
     }
 
-    fn print_table_stats(&self, device_id: &DeviceId, table_stats: &Vec<TableStats>) {
+    fn print_table_stats(&self, device_id: &DeviceId, table_stats: &[TableStats]) {
         for table in table_stats {
             self.print_single_table_stats(device_id, table);
         }
@@ -130,7 +130,7 @@ impl StatsProbing {
         );
     }
 
-    fn print_queue_stats(&self, device_id: &DeviceId, queue_stats: &Vec<QueueStats>) {
+    fn print_queue_stats(&self, device_id: &DeviceId, queue_stats: &[QueueStats]) {
         for queue in queue_stats {
             self.print_single_queue_stats(device_id, queue);
         }

@@ -18,10 +18,7 @@ impl Wildcards {
     fn mask_bits(x: &Option<Mask<u32>>) -> u32 {
         match *x {
             None => 32,
-            Some(ref x) => match x.mask {
-                None => 0,
-                Some(m) => m,
-            },
+            Some(ref x) => x.mask.unwrap_or(0),
         }
     }
 }

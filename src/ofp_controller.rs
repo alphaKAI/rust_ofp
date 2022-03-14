@@ -32,7 +32,7 @@ impl Devices {
     }
 
     fn list_all_devices(&self) -> Vec<DeviceId> {
-        self.devices.keys().map(|d| d.clone()).collect()
+        self.devices.keys().copied().collect()
     }
 
     fn find_unknown_device_index(&self, dpid: &DeviceId) -> Option<usize> {
@@ -66,11 +66,8 @@ impl Devices {
     }
 
     pub fn event(&mut self, event: &DeviceEvent) {
-        match event {
-            DeviceEvent::SwitchConnected(device_id) => {
-                self.handle_switch_connected(device_id.clone());
-            }
-            _ => {}
+        if let DeviceEvent::SwitchConnected(device_id) = event {
+            self.handle_switch_connected(*device_id);
         }
     }
 
@@ -94,7 +91,7 @@ pub trait DeviceControllerApp {
 }
 
 struct DeviceControllerApps {
-    apps: Vec<Box<DeviceControllerApp + Sync + Send>>,
+    apps: Vec<Box<dyn DeviceControllerApp + Sync + Send>>,
 }
 
 impl DeviceControllerApps {
@@ -117,7 +114,7 @@ impl DeviceControllerApps {
         }
     }
 
-    pub fn register_app(&mut self, app: Box<DeviceControllerApp + Sync + Send>) {
+    pub fn register_app(&mut self, app: Box<dyn DeviceControllerApp + Sync + Send>) {
         self.apps.push(app);
     }
 }
@@ -131,8 +128,8 @@ pub struct DeviceController {
 }
 
 const MESSAGES_CHANNEL_BUFFER: usize = 1000;
-impl DeviceController {
-    pub fn new() -> DeviceController {
+impl Default for DeviceController {
+    fn default() -> Self {
         let (tx, rx) = mpsc::channel(MESSAGES_CHANNEL_BUFFER);
         DeviceController {
             devices: Mutex::new(Devices::new()),
@@ -141,7 +138,8 @@ impl DeviceController {
             apps: Mutex::new(DeviceControllerApps::new()),
         }
     }
-
+}
+impl DeviceController {
     pub fn start(&self) {
         self.apps.lock().unwrap().start();
     }
@@ -166,7 +164,7 @@ impl DeviceController {
             .unwrap();
     }
 
-    pub fn register_app(&self, app: Box<DeviceControllerApp + Send + Sync>) {
+    pub fn register_app(&self, app: Box<dyn DeviceControllerApp + Send + Sync>) {
         let mut apps = self.apps.lock().unwrap();
         apps.register_app(app);
     }

@@ -22,13 +22,13 @@ const MAIN_CONNECTION: u8 = 0;
 /// Common API for message types implementing OpenFlow Message Codes (see `MsgCode` enum).
 pub trait MessageType {
     /// Return the byte-size of a message.
-    fn size_of(&Self) -> usize;
+    fn size_of(_: &Self) -> usize;
     /// Parse a buffer into a message.
     fn parse(buf: &[u8]) -> Result<Self, OfpSerializationError>
     where
         Self: Sized;
     /// Marshal a message into a `u8` buffer.
-    fn marshal(Self, &mut Vec<u8>);
+    fn marshal(_: Self, _: &mut Vec<u8>);
 }
 
 create_empty_wrapper!(Wildcards, Wildcards0x01);
@@ -98,8 +98,8 @@ impl Pattern0x01 {
             None
         } else {
             let mut arr: [u8; 6] = [0; 6];
-            for i in 0..6 {
-                arr[i] = bytes.read_u8().unwrap();
+            for e in &mut arr {
+                *e = bytes.read_u8().unwrap();
             }
             Some(mac_of_bytes(arr))
         };
@@ -108,8 +108,8 @@ impl Pattern0x01 {
             None
         } else {
             let mut arr: [u8; 6] = [0; 6];
-            for i in 0..6 {
-                arr[i] = bytes.read_u8().unwrap();
+            for e in &mut arr {
+                *e = bytes.read_u8().unwrap();
             }
             Some(mac_of_bytes(arr))
         };
@@ -191,26 +191,23 @@ impl Pattern0x01 {
             Some(bytes.read_u16::<BigEndian>().unwrap())
         };
         Pattern {
-            dl_src: dl_src,
-            dl_dst: dl_dst,
-            dl_typ: dl_typ,
-            dl_vlan: dl_vlan,
-            dl_vlan_pcp: dl_vlan_pcp,
-            nw_src: nw_src,
-            nw_dst: nw_dst,
-            nw_proto: nw_proto,
-            nw_tos: nw_tos,
-            tp_src: tp_src,
-            tp_dst: tp_dst,
-            in_port: in_port,
+            dl_src,
+            dl_dst,
+            dl_typ,
+            dl_vlan,
+            dl_vlan_pcp,
+            nw_src,
+            nw_dst,
+            nw_proto,
+            nw_tos,
+            tp_src,
+            tp_dst,
+            in_port,
         }
     }
 
     fn if_word48(n: Option<u64>) -> u64 {
-        match n {
-            Some(n) => n,
-            None => 0,
-        }
+        n.unwrap_or(0)
     }
 
     fn marshal(p: Pattern, bytes: &mut Vec<u8>) {
@@ -438,7 +435,7 @@ impl Action0x01 {
         h + body
     }
 
-    fn size_of_sequence(actions: &Vec<Action>) -> usize {
+    fn size_of_sequence(actions: &[Action]) -> usize {
         actions
             .iter()
             .fold(0, |acc, x| Action0x01::size_of(x) + acc)
@@ -473,16 +470,16 @@ impl Action0x01 {
             }
             t if t == (OfpActionType::OFPATSetDlSrc as u16) => {
                 let mut dl_addr: [u8; 6] = [0; 6];
-                for i in 0..6 {
-                    dl_addr[i] = bytes.read_u8().unwrap();
+                for e in &mut dl_addr {
+                    *e = bytes.read_u8().unwrap();
                 }
                 bytes.consume(6);
                 Action::SetDlSrc(mac_of_bytes(dl_addr))
             }
             t if t == (OfpActionType::OFPATSetDlDst as u16) => {
                 let mut dl_addr: [u8; 6] = [0; 6];
-                for i in 0..6 {
-                    dl_addr[i] = bytes.read_u8().unwrap();
+                for e in &mut dl_addr {
+                    *e = bytes.read_u8().unwrap();
                 }
                 bytes.consume(6);
                 Action::SetDlDst(mac_of_bytes(dl_addr))
@@ -537,11 +534,9 @@ impl Action0x01 {
     }
 
     fn move_controller_last(acts: Vec<Action>) -> Vec<Action> {
-        let (mut to_ctrl, mut not_to_ctrl): (Vec<Action>, Vec<Action>) =
-            acts.into_iter().partition(|act| match *act {
-                Action::Output(PseudoPort::Controller(_)) => true,
-                _ => false,
-            });
+        let (mut to_ctrl, mut not_to_ctrl): (Vec<Action>, Vec<Action>) = acts
+            .into_iter()
+            .partition(|act| matches!(*act, Action::Output(PseudoPort::Controller(_))));
         not_to_ctrl.append(&mut to_ctrl);
         not_to_ctrl
     }
@@ -576,8 +571,8 @@ impl Action0x01 {
             }
             Action::SetDlSrc(mac) | Action::SetDlDst(mac) => {
                 let mac = bytes_of_mac(mac);
-                for i in 0..6 {
-                    bytes.write_u8(mac[i]).unwrap();
+                for t in &mac {
+                    bytes.write_u8(*t).unwrap();
                 }
                 for _ in 0..6 {
                     bytes.write_u8(0).unwrap();
@@ -613,7 +608,7 @@ struct OfpSwitchFeatures(u64, u32, u8, [u8; 3], u32, u32);
 impl MessageType for SwitchFeatures {
     fn size_of(sf: &SwitchFeatures) -> usize {
         let pds: usize = match &sf.ports {
-            Some(ports) => ports.iter().map(|pd| PortDesc0x01::size_of(pd)).sum(),
+            Some(ports) => ports.iter().map(PortDesc0x01::size_of).sum(),
             None => 0,
         };
         size_of::<OfpSwitchFeatures>() + pds
@@ -669,10 +664,10 @@ impl MessageType for SwitchFeatures {
             v
         };
         Ok(SwitchFeatures {
-            datapath_id: datapath_id,
-            num_buffers: num_buffers,
-            num_tables: num_tables,
-            supported_capabilities: supported_capabilities,
+            datapath_id,
+            num_buffers,
+            num_tables,
+            supported_capabilities,
             supported_actions: Some(supported_actions),
             ports: Some(ports),
             auxiliary_id: MAIN_CONNECTION,
@@ -715,18 +710,18 @@ impl MessageType for FlowMod {
         let command = unsafe { transmute(bytes.read_u16::<BigEndian>().unwrap()) };
         let idle = Timeout::of_int(bytes.read_u16::<BigEndian>().unwrap());
         let hard = Timeout::of_int(bytes.read_u16::<BigEndian>().unwrap());
-        let prio = bytes.read_u16::<BigEndian>().unwrap();
+        let priority = bytes.read_u16::<BigEndian>().unwrap();
         let buffer_id = bytes.read_i32::<BigEndian>().unwrap();
         let out_port = PseudoPort0x01::of_int(bytes.read_u16::<BigEndian>().unwrap())?;
         let flags = bytes.read_u16::<BigEndian>().unwrap();
         let actions = Action0x01::parse_sequence(&mut bytes)?;
         Ok(FlowMod {
             table: TableId(0),
-            command: command,
-            pattern: pattern,
-            priority: prio,
-            actions: actions,
-            cookie: cookie,
+            command,
+            pattern,
+            priority,
+            actions,
+            cookie,
             idle_timeout: idle,
             hard_timeout: hard,
             notify_when_removed: FlowMod0x01::notify_when_removed_of_flags(flags),
@@ -736,7 +731,7 @@ impl MessageType for FlowMod {
                     n => Some(n as u32),
                 }
             },
-            out_port: out_port,
+            out_port,
             check_overlap: FlowMod0x01::check_overlap_of_flags(flags),
         })
     }
@@ -771,11 +766,8 @@ impl MessageType for FlowMod {
             ))
             .unwrap();
         for act in Action0x01::move_controller_last(fm.actions) {
-            match act {
-                Action::Output(PseudoPort::Table) => {
-                    panic!("OFPPTable not allowed in installed flow.")
-                }
-                _ => (),
+            if let Action::Output(PseudoPort::Table) = act {
+                panic!("OFPPTable not allowed in installed flow.")
             }
             Action0x01::marshal(act, bytes)
         }
@@ -821,7 +813,7 @@ impl MessageType for StatsReq {
             + match &msg.body {
                 StatsReqBody::DescBody => 0,
                 StatsReqBody::FlowStatsBody { pattern, .. } => {
-                    Pattern0x01::size_of(&pattern) + size_of::<OfpStatsReqFlowBody>()
+                    Pattern0x01::size_of(pattern) + size_of::<OfpStatsReqFlowBody>()
                 }
                 StatsReqBody::TableBody => 0,
                 StatsReqBody::PortBody { .. } => size_of::<OfpStatsReqPortBody>(),
@@ -969,10 +961,9 @@ impl MessageType for StatsResp {
         size_of::<OfpStatsResp>()
             + match msg.body {
                 StatsRespBody::DescBody { .. } => size_of::<OfpStatsRespDescBody>(),
-                StatsRespBody::FlowStatsBody { ref flow_stats } => flow_stats
-                    .iter()
-                    .map(|stats| FlowStats0x01::size_of(stats))
-                    .sum(),
+                StatsRespBody::FlowStatsBody { ref flow_stats } => {
+                    flow_stats.iter().map(FlowStats0x01::size_of).sum()
+                }
                 StatsRespBody::AggregateStatsBody { .. } => size_of::<OfpStatsRespAggregateBody>(),
                 StatsRespBody::TableBody { ref table_stats } => {
                     table_stats.len() * size_of::<OfpStatsRespTableStats>()
@@ -1223,9 +1214,9 @@ impl MessageType for PacketIn {
         };
         Ok(PacketIn {
             input_payload: payload,
-            total_len: total_len,
-            port: port,
-            reason: reason,
+            total_len,
+            port,
+            reason,
         })
     }
 
@@ -1326,15 +1317,15 @@ impl MessageType for FlowRemoved {
         let packet_count = bytes.read_u64::<BigEndian>().unwrap();
         let byte_count = bytes.read_u64::<BigEndian>().unwrap();
         Ok(FlowRemoved {
-            pattern: pattern,
-            cookie: cookie,
-            priority: priority,
-            reason: reason,
-            duration_sec: duration_sec,
-            duration_nsec: duration_nsec,
+            pattern,
+            cookie,
+            priority,
+            reason,
+            duration_sec,
+            duration_nsec,
             idle_timeout: idle,
-            packet_count: packet_count,
-            byte_count: byte_count,
+            packet_count,
+            byte_count,
         })
     }
 
@@ -1390,8 +1381,8 @@ impl PortDesc0x01 {
         let port_no = bytes.read_u16::<BigEndian>().unwrap();
         let hw_addr = {
             let mut arr: [u8; 6] = [0; 6];
-            for i in 0..6 {
-                arr[i] = bytes.read_u8().unwrap();
+            for e in &mut arr {
+                *e = bytes.read_u8().unwrap();
             }
             mac_of_bytes(arr)
         };
@@ -1438,15 +1429,15 @@ impl PortDesc0x01 {
         let supported = PortFeatures0x01::of_int(bytes.read_u32::<BigEndian>().unwrap());
         let peer = PortFeatures0x01::of_int(bytes.read_u32::<BigEndian>().unwrap());
         Ok(PortDesc {
-            port_no: port_no,
-            hw_addr: hw_addr,
-            name: name,
-            config: config,
-            state: state,
-            curr: curr,
-            advertised: advertised,
-            supported: supported,
-            peer: peer,
+            port_no,
+            hw_addr,
+            name,
+            config,
+            state,
+            curr,
+            advertised,
+            supported,
+            peer,
         })
     }
 }
@@ -1461,10 +1452,7 @@ impl MessageType for PortStatus {
         let reason = unsafe { transmute(bytes.read_u8().unwrap()) };
         bytes.consume(7);
         let desc = PortDesc0x01::parse(&mut bytes)?;
-        Ok(PortStatus {
-            reason: reason,
-            desc: desc,
-        })
+        Ok(PortStatus { reason, desc })
     }
 
     fn marshal(_: PortStatus, _: &mut Vec<u8>) {}
@@ -1628,7 +1616,7 @@ pub mod message {
         }
 
         fn header_of(xid: u32, msg: &Message0x01) -> Result<OfpHeader, OfpSerializationError> {
-            let sizeof_buf = Self::size_of(&msg);
+            let sizeof_buf = Self::size_of(msg);
             Ok(OfpHeader::new(
                 OPENFLOW_0_01_VERSION,
                 Self::msg_code_of_message_u8(&msg.inner)?,
@@ -1708,9 +1696,9 @@ pub mod message {
         FlowMod {
             table: TableId(0),
             command: FlowModCmd::AddFlow,
-            pattern: pattern,
+            pattern,
             priority: prio,
-            actions: actions,
+            actions,
             cookie: 0,
             idle_timeout: Timeout::Permanent,
             hard_timeout: Timeout::Permanent,
@@ -1724,7 +1712,7 @@ pub mod message {
     /// Parse a payload buffer into a network level packet.
     pub fn parse_payload(p: &Payload) -> Packet {
         match *p {
-            Payload::Buffered(_, ref b) | Payload::NotBuffered(ref b) => Packet::parse(&b),
+            Payload::Buffered(_, ref b) | Payload::NotBuffered(ref b) => Packet::parse(b),
         }
     }
 
@@ -1822,8 +1810,7 @@ pub mod message {
         }
 
         fn switch_ports() -> Vec<PortDesc> {
-            let mut vec = vec![];
-            vec.push(port_desc());
+            let vec = vec![port_desc()];
 
             vec
         }
@@ -1885,10 +1872,10 @@ pub mod message {
         }
 
         fn flow_mod_actions() -> Vec<Action> {
-            let mut actions = Vec::new();
-
-            actions.push(Action::SetDlDst(0x1234567890AB));
-            actions.push(Action::Output(PseudoPort::PhysicalPort(1)));
+            let actions = vec![
+                Action::SetDlDst(0x1234567890AB),
+                Action::Output(PseudoPort::PhysicalPort(1)),
+            ];
 
             actions
         }
@@ -1974,32 +1961,34 @@ pub mod message {
         }
 
         fn port_stats_vec() -> Vec<PortStats> {
-            let mut vec = vec![];
-            vec.push(PortStats {
-                port_no: 1,
-                packets: TransmissionCounter { rx: 1000, tx: 2000 },
-                bytes: TransmissionCounter {
-                    rx: 536870912,
-                    tx: 1073741824,
+            let vec = vec![
+                PortStats {
+                    port_no: 1,
+                    packets: TransmissionCounter { rx: 1000, tx: 2000 },
+                    bytes: TransmissionCounter {
+                        rx: 536870912,
+                        tx: 1073741824,
+                    },
+                    dropped: TransmissionCounter { rx: 5, tx: 0 },
+                    errors: TransmissionCounter { rx: 0, tx: 0 },
+                    rx_frame_errors: 1,
+                    rx_over_errors: 2,
+                    rx_crc_errors: 3,
+                    collisions: 4,
                 },
-                dropped: TransmissionCounter { rx: 5, tx: 0 },
-                errors: TransmissionCounter { rx: 0, tx: 0 },
-                rx_frame_errors: 1,
-                rx_over_errors: 2,
-                rx_crc_errors: 3,
-                collisions: 4,
-            });
-            vec.push(PortStats {
-                port_no: 2,
-                packets: TransmissionCounter { rx: 0, tx: 0 },
-                bytes: TransmissionCounter { rx: 0, tx: 0 },
-                dropped: TransmissionCounter { rx: 0, tx: 0 },
-                errors: TransmissionCounter { rx: 0, tx: 0 },
-                rx_frame_errors: 0,
-                rx_over_errors: 0,
-                rx_crc_errors: 0,
-                collisions: 0,
-            });
+                PortStats {
+                    port_no: 2,
+                    packets: TransmissionCounter { rx: 0, tx: 0 },
+                    bytes: TransmissionCounter { rx: 0, tx: 0 },
+                    dropped: TransmissionCounter { rx: 0, tx: 0 },
+                    errors: TransmissionCounter { rx: 0, tx: 0 },
+                    rx_frame_errors: 0,
+                    rx_over_errors: 0,
+                    rx_crc_errors: 0,
+                    collisions: 0,
+                },
+            ];
+
             vec
         }
 
@@ -2049,8 +2038,7 @@ pub mod message {
 
         fn flow_stats_vec() -> Vec<FlowStats> {
             let mut vec = vec![];
-            let mut actions = Vec::new();
-            actions.push(Action::Output(PseudoPort::Controller(0)));
+            let actions = vec![Action::Output(PseudoPort::Controller(0))];
             vec.push(FlowStats {
                 table_id: 0,
                 pattern: Pattern::match_all(),
@@ -2062,7 +2050,7 @@ pub mod message {
                 cookie: 0x12345678,
                 packet_count: 5000,
                 byte_count: 640000,
-                actions: actions,
+                actions,
             });
 
             vec.push(FlowStats {
@@ -2109,21 +2097,21 @@ pub mod message {
         fn test_marshal_hello() {
             let hello = Message::Hello;
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(hello));
-            let reference = load_reference(&"test/data/hello10.data");
+            let reference = load_reference("test/data/hello10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_hello() {
-            let reference = load_reference(&"test/data/hello10.data");
+            let reference = load_reference("test/data/hello10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
             match message {
                 Message::Hello => {}
                 _ => {
-                    assert!(false, "Should be a Hello message");
+                    panic!("Should be a Hello message");
                 }
             }
         }
@@ -2136,14 +2124,14 @@ pub mod message {
                 error_vector(),
             ));
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(error));
-            let reference = load_reference(&"test/data/error10.data");
+            let reference = load_reference("test/data/error10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_error() {
-            let reference = load_reference(&"test/data/error10.data");
+            let reference = load_reference("test/data/error10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2155,7 +2143,7 @@ pub mod message {
                     assert_eq!(error_vector(), error_data);
                 }
                 _ => {
-                    assert!(false, "Should be a BadRequest::BadType Error message");
+                    panic!("Should be a BadRequest::BadType Error message");
                 }
             }
         }
@@ -2164,14 +2152,14 @@ pub mod message {
         fn test_marshal_echo_request() {
             let echo = Message::EchoRequest(echo_vector());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
-            let reference = load_reference(&"test/data/echo10.data");
+            let reference = load_reference("test/data/echo10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_echo_request() {
-            let reference = load_reference(&"test/data/echo10.data");
+            let reference = load_reference("test/data/echo10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2180,7 +2168,7 @@ pub mod message {
                     assert_eq!(echo_vector(), data);
                 }
                 _ => {
-                    assert!(false, "Should be an EchoRequest message");
+                    panic!("Should be an EchoRequest message");
                 }
             }
         }
@@ -2189,14 +2177,14 @@ pub mod message {
         fn test_marshal_echo_reply() {
             let echo = Message::EchoReply(echo_vector());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
-            let reference = load_reference(&"test/data/echo_reply10.data");
+            let reference = load_reference("test/data/echo_reply10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_echo_reply() {
-            let reference = load_reference(&"test/data/echo_reply10.data");
+            let reference = load_reference("test/data/echo_reply10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2205,7 +2193,7 @@ pub mod message {
                     assert_eq!(echo_vector(), data);
                 }
                 _ => {
-                    assert!(false, "Should be an EchoReply message");
+                    panic!("Should be an EchoReply message");
                 }
             }
         }
@@ -2214,7 +2202,7 @@ pub mod message {
         fn test_marshal_features_request() {
             let echo = Message::FeaturesReq;
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(echo));
-            let reference = load_reference(&"test/data/features_request10.data");
+            let reference = load_reference("test/data/features_request10.data");
 
             assert_eq!(reference, data.unwrap());
         }
@@ -2222,14 +2210,14 @@ pub mod message {
         #[test]
         #[ignore] // Not implemented
         fn test_parse_features_request() {
-            let reference = load_reference(&"test/data/features_request10.data");
+            let reference = load_reference("test/data/features_request10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
             match message {
                 Message::FeaturesReq => {}
                 _ => {
-                    assert!(false, "Should be an Features Request message");
+                    panic!("Should be an Features Request message");
                 }
             }
         }
@@ -2239,14 +2227,14 @@ pub mod message {
         fn test_marshal_features_reply() {
             let features = Message::FeaturesReply(switch_features());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/features_reply10.data");
+            let reference = load_reference("test/data/features_reply10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_features_reply() {
-            let reference = load_reference(&"test/data/features_reply10.data");
+            let reference = load_reference("test/data/features_reply10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2255,7 +2243,7 @@ pub mod message {
                     assert_eq!(switch_features(), features);
                 }
                 _ => {
-                    assert!(false, "Should be a Features Reply message");
+                    panic!("Should be a Features Reply message");
                 }
             }
         }
@@ -2264,14 +2252,14 @@ pub mod message {
         fn test_marshal_flow_mod() {
             let features = Message::FlowMod(flow_mod());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/flowmod10.data");
+            let reference = load_reference("test/data/flowmod10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_flow_mod() {
-            let reference = load_reference(&"test/data/flowmod10.data");
+            let reference = load_reference("test/data/flowmod10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2280,7 +2268,7 @@ pub mod message {
                     assert_eq!(flow_mod(), f);
                 }
                 _ => {
-                    assert!(false, "Should be a Flow Mod message");
+                    panic!("Should be a Flow Mod message");
                 }
             }
         }
@@ -2289,14 +2277,14 @@ pub mod message {
         fn test_marshal_packet_in() {
             let features = Message::PacketIn(packet_in());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/packetin10.data");
+            let reference = load_reference("test/data/packetin10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_packet_in() {
-            let reference = load_reference(&"test/data/packetin10.data");
+            let reference = load_reference("test/data/packetin10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2305,7 +2293,7 @@ pub mod message {
                     assert_eq!(packet_in(), packet);
                 }
                 _ => {
-                    assert!(false, "Should be a PacketIn message");
+                    panic!("Should be a PacketIn message");
                 }
             }
         }
@@ -2314,14 +2302,14 @@ pub mod message {
         fn test_marshal_packet_out() {
             let features = Message::PacketOut(packet_out());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/packetout10.data");
+            let reference = load_reference("test/data/packetout10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_packet_out() {
-            let reference = load_reference(&"test/data/packetout10.data");
+            let reference = load_reference("test/data/packetout10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2330,7 +2318,7 @@ pub mod message {
                     assert_eq!(packet_out(), packet);
                 }
                 _ => {
-                    assert!(false, "Should be a PacketOut message");
+                    panic!("Should be a PacketOut message");
                 }
             }
         }
@@ -2339,21 +2327,21 @@ pub mod message {
         fn test_marshal_barrier_request() {
             let features = Message::BarrierRequest;
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/barrierrequest10.data");
+            let reference = load_reference("test/data/barrierrequest10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_barrier_request() {
-            let reference = load_reference(&"test/data/barrierrequest10.data");
+            let reference = load_reference("test/data/barrierrequest10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
             match message {
                 Message::BarrierRequest => {}
                 _ => {
-                    assert!(false, "Should be a BarrierRequest message");
+                    panic!("Should be a BarrierRequest message");
                 }
             }
         }
@@ -2362,21 +2350,21 @@ pub mod message {
         fn test_marshal_barrier_reply() {
             let features = Message::BarrierReply;
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/barrierreply10.data");
+            let reference = load_reference("test/data/barrierreply10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_barrier_reply() {
-            let reference = load_reference(&"test/data/barrierreply10.data");
+            let reference = load_reference("test/data/barrierreply10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
             match message {
                 Message::BarrierReply => {}
                 _ => {
-                    assert!(false, "Should be a BarrierReply message");
+                    panic!("Should be a BarrierReply message");
                 }
             }
         }
@@ -2385,14 +2373,14 @@ pub mod message {
         fn test_marshal_flow_removed() {
             let features = Message::FlowRemoved(flow_removed());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/flowremoved10.data");
+            let reference = load_reference("test/data/flowremoved10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_flow_removed() {
-            let reference = load_reference(&"test/data/flowremoved10.data");
+            let reference = load_reference("test/data/flowremoved10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2401,7 +2389,7 @@ pub mod message {
                     assert_eq!(flow_removed(), flow_removed_data)
                 }
                 _ => {
-                    assert!(false, "Should be a FlowRemoved message");
+                    panic!("Should be a FlowRemoved message");
                 }
             }
         }
@@ -2411,14 +2399,14 @@ pub mod message {
         fn test_marshal_port_status() {
             let features = Message::PortStatus(port_status());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/portstatus10.data");
+            let reference = load_reference("test/data/portstatus10.data");
 
             assert_eq!(reference, data.unwrap());
         }
 
         #[test]
         fn test_parse_port_status() {
-            let reference = load_reference(&"test/data/portstatus10.data");
+            let reference = load_reference("test/data/portstatus10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2427,7 +2415,7 @@ pub mod message {
                     assert_eq!(port_status(), port_status_data)
                 }
                 _ => {
-                    assert!(false, "Should be a PortStatus message");
+                    panic!("Should be a PortStatus message");
                 }
             }
         }
@@ -2436,7 +2424,7 @@ pub mod message {
         fn test_marshal_port_stats_request() {
             let features = Message::StatsRequest(port_stats_request());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/portstatsrequest10.data");
+            let reference = load_reference("test/data/portstatsrequest10.data");
 
             assert_eq!(reference, data.unwrap());
         }
@@ -2444,7 +2432,7 @@ pub mod message {
         #[test]
         #[ignore]
         fn test_parse_port_stats_request() {
-            let reference = load_reference(&"test/data/portstatsrequest10.data");
+            let reference = load_reference("test/data/portstatsrequest10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2453,7 +2441,7 @@ pub mod message {
                     assert_eq!(port_stats_request(), stats_request_data)
                 }
                 _ => {
-                    assert!(false, "Should be a Port StatsRequest message");
+                    panic!("Should be a Port StatsRequest message");
                 }
             }
         }
@@ -2462,7 +2450,7 @@ pub mod message {
         fn test_marshal_desc_stats_request() {
             let features = Message::StatsRequest(desc_stats_request());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/descstatsrequest10.data");
+            let reference = load_reference("test/data/descstatsrequest10.data");
 
             assert_eq!(reference, data.unwrap());
         }
@@ -2470,7 +2458,7 @@ pub mod message {
         #[test]
         #[ignore]
         fn test_parse_desc_stats_request() {
-            let reference = load_reference(&"test/data/descstatsrequest10.data");
+            let reference = load_reference("test/data/descstatsrequest10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2479,7 +2467,7 @@ pub mod message {
                     assert_eq!(desc_stats_request(), stats_request_data)
                 }
                 _ => {
-                    assert!(false, "Should be a Desc StatsRequest message");
+                    panic!("Should be a Desc StatsRequest message");
                 }
             }
         }
@@ -2492,7 +2480,7 @@ pub mod message {
             // answers to this particular flow stats request.
             let features = Message::StatsRequest(flow_stats_request());
             let data = Message0x01::marshal(TEST_XID, Message0x01::from(features));
-            let reference = load_reference(&"test/data/flowstatsrequest10.data");
+            let reference = load_reference("test/data/flowstatsrequest10.data");
 
             assert_eq!(reference, data.unwrap());
         }
@@ -2500,7 +2488,7 @@ pub mod message {
         #[test]
         #[ignore]
         fn test_parse_flow_stats_request() {
-            let reference = load_reference(&"test/data/flowstatsrequest10.data");
+            let reference = load_reference("test/data/flowstatsrequest10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2509,14 +2497,14 @@ pub mod message {
                     assert_eq!(flow_stats_request(), stats_request_data)
                 }
                 _ => {
-                    assert!(false, "Should be a Flow StatsRequest message");
+                    panic!("Should be a Flow StatsRequest message");
                 }
             }
         }
 
         #[test]
         fn test_parse_port_stats_reply() {
-            let reference = load_reference(&"test/data/portstatsreply10.data");
+            let reference = load_reference("test/data/portstatsreply10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2525,14 +2513,14 @@ pub mod message {
                     assert_eq!(port_stats_reply(), stats_reply_data)
                 }
                 _ => {
-                    assert!(false, "Should be a Port StatsReply message");
+                    panic!("Should be a Port StatsReply message");
                 }
             }
         }
 
         #[test]
         fn test_parse_desc_stats_reply() {
-            let reference = load_reference(&"test/data/descstatsreply10.data");
+            let reference = load_reference("test/data/descstatsreply10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2541,14 +2529,14 @@ pub mod message {
                     assert_eq!(desc_stats_reply(), stats_reply_data)
                 }
                 _ => {
-                    assert!(false, "Should be a Desc StatsReply message");
+                    panic!("Should be a Desc StatsReply message");
                 }
             }
         }
 
         #[test]
         fn test_parse_flow_stats_reply() {
-            let reference = load_reference(&"test/data/flowstatsreply10.data");
+            let reference = load_reference("test/data/flowstatsreply10.data");
             let (header, message) = parse(reference);
 
             verify_header(&header);
@@ -2557,7 +2545,7 @@ pub mod message {
                     assert_eq!(flow_stats_reply(), stats_reply_data)
                 }
                 _ => {
-                    assert!(false, "Should be a Flow StatsReply message");
+                    panic!("Should be a Flow StatsReply message");
                 }
             }
         }

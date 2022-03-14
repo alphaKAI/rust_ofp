@@ -24,7 +24,7 @@ fn main() {
     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
     info!("rust_ofp starting");
 
-    let controller = Arc::new(DeviceController::new());
+    let controller = Arc::new(DeviceController::default());
     controller.register_app(Box::new(LearningSwitchApp::new(controller.clone())));
     controller.register_app(Box::new(StatsProbing::new(controller.clone())));
 

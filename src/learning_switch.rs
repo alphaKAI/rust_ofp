@@ -81,7 +81,7 @@ impl LearningSwitch {
     }
 
     fn packet_in(&mut self, sw: &DeviceId, pkt: &PacketIn) {
-        self.learning_packet_in(&pkt);
+        self.learning_packet_in(pkt);
         self.routing_packet_in(sw, pkt);
     }
 
@@ -110,11 +110,8 @@ impl LearningSwitchApp {
 
 impl DeviceControllerApp for LearningSwitchApp {
     fn event(&mut self, event: Arc<DeviceEvent>) {
-        match *event {
-            DeviceEvent::PacketIn(ref device_id, ref packet) => {
-                self.switch.packet_in(device_id, packet);
-            }
-            _ => {}
+        if let DeviceEvent::PacketIn(ref device_id, ref packet) = *event {
+            self.switch.packet_in(device_id, packet);
         }
     }
 }

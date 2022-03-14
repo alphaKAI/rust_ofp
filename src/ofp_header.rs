@@ -28,10 +28,10 @@ impl OfpHeader {
     /// Create an `OfpHeader` out of the arguments.
     pub fn new(version: u8, typ: u8, length: u16, xid: u32) -> OfpHeader {
         OfpHeader {
-            version: version,
-            typ: typ,
-            length: length,
-            xid: xid,
+            version,
+            typ,
+            length,
+            xid,
         }
     }
 
