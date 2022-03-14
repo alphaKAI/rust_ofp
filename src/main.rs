@@ -1,4 +1,3 @@
-
 #[macro_use]
 extern crate log;
 extern crate log4rs;
@@ -14,7 +13,6 @@ use rust_ofp::apps::StatsProbing;
 use rust_ofp::learning_switch::LearningSwitchApp;
 use rust_ofp::ofp_controller::{DeviceController, DeviceControllerFuture};
 use std::sync::Arc;
-
 
 fn process(socket: TcpStream, controller: Arc<DeviceController>) {
     info!("New device connected: {:?}", socket);
@@ -35,7 +33,9 @@ fn main() {
 
     let controller_future = DeviceControllerFuture::new(controller.clone());
     let controller_socket_clone = controller.clone();
-    let server = listener.incoming().for_each(move |socket| {
+    let server = listener
+        .incoming()
+        .for_each(move |socket| {
             process(socket, controller_socket_clone.clone());
             Ok(())
         })

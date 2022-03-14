@@ -1,6 +1,6 @@
+use bytes::Buf;
 use std::io::{BufRead, Cursor, Read, Write};
 use std::mem::{size_of, transmute};
-use bytes::Buf;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -18,7 +18,9 @@ pub trait MessageType {
     /// Return the byte-size of a message.
     fn size_of(&Self) -> usize;
     /// Parse a buffer into a message.
-    fn parse(buf: &[u8]) -> Result<Self, OfpSerializationError> where Self: Sized;
+    fn parse(buf: &[u8]) -> Result<Self, OfpSerializationError>
+    where
+        Self: Sized;
     /// Marshal a message into a `u8` buffer.
     fn marshal(Self, &mut Vec<u8>);
 }
@@ -39,7 +41,6 @@ pub enum OfpPort {
 create_empty_wrapper!(PseudoPort, PseudoPort0x04);
 
 impl PseudoPort0x04 {
-
     fn make(p: u16, len: u64) -> Result<PseudoPort, OfpSerializationError> {
         let res = match p {
             p if p == (OfpPort::OFPPInPort as u16) => PseudoPort::InPort,
@@ -56,7 +57,7 @@ impl PseudoPort0x04 {
                     return Err(OfpSerializationError::UnexpectedValueError {
                         value: format!("{:x}", p),
                         field: "port number".to_string(),
-                        message: "".to_string()
+                        message: "".to_string(),
                     });
                 }
             }
@@ -68,15 +69,27 @@ impl PseudoPort0x04 {
     fn marshal(pp: PseudoPort, bytes: &mut Vec<u8>) {
         match pp {
             PseudoPort::PhysicalPort(p) => bytes.write_u16::<BigEndian>(p).unwrap(),
-            PseudoPort::InPort => bytes.write_u16::<BigEndian>(OfpPort::OFPPInPort as u16).unwrap(),
-            PseudoPort::Table => bytes.write_u16::<BigEndian>(OfpPort::OFPPTable as u16).unwrap(),
-            PseudoPort::Normal => bytes.write_u16::<BigEndian>(OfpPort::OFPPNormal as u16).unwrap(),
-            PseudoPort::Flood => bytes.write_u16::<BigEndian>(OfpPort::OFPPFlood as u16).unwrap(),
-            PseudoPort::AllPorts => bytes.write_u16::<BigEndian>(OfpPort::OFPPAll as u16).unwrap(),
-            PseudoPort::Controller(_) => {
-                bytes.write_u16::<BigEndian>(OfpPort::OFPPController as u16).unwrap()
-            }
-            PseudoPort::Local => bytes.write_u16::<BigEndian>(OfpPort::OFPPLocal as u16).unwrap(),
+            PseudoPort::InPort => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPInPort as u16)
+                .unwrap(),
+            PseudoPort::Table => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPTable as u16)
+                .unwrap(),
+            PseudoPort::Normal => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPNormal as u16)
+                .unwrap(),
+            PseudoPort::Flood => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPFlood as u16)
+                .unwrap(),
+            PseudoPort::AllPorts => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPAll as u16)
+                .unwrap(),
+            PseudoPort::Controller(_) => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPController as u16)
+                .unwrap(),
+            PseudoPort::Local => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPLocal as u16)
+                .unwrap(),
         }
     }
 }
@@ -146,20 +159,19 @@ impl Action0x04 {
             Action::SetDlVlan(None) => size_of::<OfpActionStripVlan>(),
             Action::SetDlVlan(Some(_)) => size_of::<OfpActionVlanVId>(),
             Action::SetDlVlanPcp(_) => size_of::<OfpActionVlanPcp>(),
-            Action::SetDlSrc(_) |
-            Action::SetDlDst(_) => size_of::<OfpActionDlAddr>(),
-            Action::SetNwSrc(_) |
-            Action::SetNwDst(_) => size_of::<OfpActionNwAddr>(),
+            Action::SetDlSrc(_) | Action::SetDlDst(_) => size_of::<OfpActionDlAddr>(),
+            Action::SetNwSrc(_) | Action::SetNwDst(_) => size_of::<OfpActionNwAddr>(),
             Action::SetNwTos(_) => size_of::<OfpActionNwTos>(),
-            Action::SetTpSrc(_) |
-            Action::SetTpDst(_) => size_of::<OfpActionTpPort>(),
+            Action::SetTpSrc(_) | Action::SetTpDst(_) => size_of::<OfpActionTpPort>(),
             Action::Enqueue(_, _) => size_of::<OfpActionEnqueue>(),
         };
         h + body
     }
 
     fn size_of_sequence(actions: &Vec<Action>) -> usize {
-        actions.iter().fold(0, |acc, x| Action0x04::size_of(x) + acc)
+        actions
+            .iter()
+            .fold(0, |acc, x| Action0x04::size_of(x) + acc)
     }
 
     fn _parse(bytes: &mut Cursor<Vec<u8>>) -> Result<Action, OfpSerializationError> {
@@ -236,9 +248,9 @@ impl Action0x04 {
                 return Result::Err(OfpSerializationError::UnexpectedValueError {
                     value: format!("0x{:x}", t),
                     field: "type".to_string(),
-                    message: "action".to_string()
+                    message: "action".to_string(),
                 });
-            },
+            }
         };
         Ok(action)
     }
@@ -255,8 +267,8 @@ impl Action0x04 {
     }
 
     fn move_controller_last(acts: Vec<Action>) -> Vec<Action> {
-        let (mut to_ctrl, mut not_to_ctrl): (Vec<Action>, Vec<Action>) = acts.into_iter()
-            .partition(|act| match *act {
+        let (mut to_ctrl, mut not_to_ctrl): (Vec<Action>, Vec<Action>) =
+            acts.into_iter().partition(|act| match *act {
                 Action::Output(PseudoPort::Controller(_)) => true,
                 _ => false,
             });
@@ -265,15 +277,20 @@ impl Action0x04 {
     }
 
     fn marshal(act: Action, bytes: &mut Vec<u8>) {
-        bytes.write_u16::<BigEndian>(Action0x04::type_code(&act) as u16).unwrap();
-        bytes.write_u16::<BigEndian>(Action0x04::size_of(&act) as u16).unwrap();
+        bytes
+            .write_u16::<BigEndian>(Action0x04::type_code(&act) as u16)
+            .unwrap();
+        bytes
+            .write_u16::<BigEndian>(Action0x04::size_of(&act) as u16)
+            .unwrap();
         match act {
             Action::Output(pp) => {
                 PseudoPort0x04::marshal(pp, bytes);
-                bytes.write_u16::<BigEndian>(match pp {
-                    PseudoPort::Controller(w) => w as u16,
-                    _ => 0,
-                })
+                bytes
+                    .write_u16::<BigEndian>(match pp {
+                        PseudoPort::Controller(w) => w as u16,
+                        _ => 0,
+                    })
                     .unwrap()
             }
             Action::SetDlVlan(None) => bytes.write_u32::<BigEndian>(0xffff).unwrap(),
@@ -287,8 +304,7 @@ impl Action0x04 {
                     bytes.write_u8(0).unwrap();
                 }
             }
-            Action::SetDlSrc(mac) |
-            Action::SetDlDst(mac) => {
+            Action::SetDlSrc(mac) | Action::SetDlDst(mac) => {
                 let mac = bytes_of_mac(mac);
                 for i in 0..6 {
                     bytes.write_u8(mac[i]).unwrap();
@@ -297,16 +313,16 @@ impl Action0x04 {
                     bytes.write_u8(0).unwrap();
                 }
             }
-            Action::SetNwSrc(addr) |
-            Action::SetNwDst(addr) => bytes.write_u32::<BigEndian>(addr).unwrap(),
+            Action::SetNwSrc(addr) | Action::SetNwDst(addr) => {
+                bytes.write_u32::<BigEndian>(addr).unwrap()
+            }
             Action::SetNwTos(n) => {
                 bytes.write_u8(n).unwrap();
                 for _ in 0..3 {
                     bytes.write_u8(0).unwrap();
                 }
             }
-            Action::SetTpSrc(pt) |
-            Action::SetTpDst(pt) => {
+            Action::SetTpSrc(pt) | Action::SetTpDst(pt) => {
                 bytes.write_u16::<BigEndian>(pt).unwrap();
                 bytes.write_u16::<BigEndian>(0).unwrap();
             }
@@ -328,10 +344,8 @@ impl MessageType for SwitchFeatures {
     fn size_of(sf: &SwitchFeatures) -> usize {
         // TODO same code as 1.0 (refactor)
         let pds: usize = match &sf.ports {
-            Some(ports) => {
-                ports.iter().map(|pd| PortDesc0x04::size_of(pd)).sum()
-            },
-            None => 0
+            Some(ports) => ports.iter().map(|pd| PortDesc0x04::size_of(pd)).sum(),
+            None => 0,
         };
         size_of::<OfpSwitchFeatures>() + pds
     }
@@ -355,7 +369,7 @@ impl MessageType for SwitchFeatures {
                 queue_stats: test_bit(6, d as u64),
                 port_blocked,
                 arp_match_ip: true,
-                stp: port_blocked
+                stp: port_blocked,
             }
         };
         bytes.consume(4);
@@ -383,8 +397,7 @@ create_empty_wrapper!(Payload, Payload0x04);
 impl Payload0x04 {
     fn marshal(payload: Payload, bytes: &mut Vec<u8>) {
         match payload {
-            Payload::Buffered(_, buf) |
-            Payload::NotBuffered(buf) => bytes.write_all(&buf).unwrap(),
+            Payload::Buffered(_, buf) | Payload::NotBuffered(buf) => bytes.write_all(&buf).unwrap(),
         }
     }
 }
@@ -439,8 +452,9 @@ struct OfpPacketOut(u32, u16, u16);
 
 impl MessageType for PacketOut {
     fn size_of(po: &PacketOut) -> usize {
-        size_of::<OfpPacketOut>() + Action0x04::size_of_sequence(&po.apply_actions) +
-        Payload::size_of(&po.output_payload)
+        size_of::<OfpPacketOut>()
+            + Action0x04::size_of_sequence(&po.apply_actions)
+            + Payload::size_of(&po.output_payload)
     }
 
     fn parse(buf: &[u8]) -> Result<PacketOut, OfpSerializationError> {
@@ -472,16 +486,21 @@ impl MessageType for PacketOut {
     }
 
     fn marshal(po: PacketOut, bytes: &mut Vec<u8>) {
-        bytes.write_i32::<BigEndian>(match po.output_payload {
+        bytes
+            .write_i32::<BigEndian>(match po.output_payload {
                 Payload::Buffered(n, _) => n as i32,
                 Payload::NotBuffered(_) => -1,
             })
             .unwrap();
         match po.port_id {
             Some(id) => PseudoPort0x04::marshal(PseudoPort::PhysicalPort(id), bytes),
-            None => bytes.write_u16::<BigEndian>(OfpPort::OFPPNone as u16).unwrap(),
+            None => bytes
+                .write_u16::<BigEndian>(OfpPort::OFPPNone as u16)
+                .unwrap(),
         }
-        bytes.write_u16::<BigEndian>(Action0x04::size_of_sequence(&po.apply_actions) as u16).unwrap();
+        bytes
+            .write_u16::<BigEndian>(Action0x04::size_of_sequence(&po.apply_actions) as u16)
+            .unwrap();
         for act in Action0x04::move_controller_last(po.apply_actions) {
             Action0x04::marshal(act, bytes);
         }
@@ -558,13 +577,11 @@ impl PortDesc0x04 {
                     } else if d_masked == (StpState::Block as u32) << 8 {
                         StpState::Block
                     } else {
-                        return Err(
-                            OfpSerializationError::UnexpectedValueError {
-                                value: format!("{:x}", d_masked),
-                                field: "ofp_port_state/stp_state".to_string(),
-                                message: "Port Description".to_string(),
-                            }
-                        );
+                        return Err(OfpSerializationError::UnexpectedValueError {
+                            value: format!("{:x}", d_masked),
+                            field: "ofp_port_state/stp_state".to_string(),
+                            message: "Port Description".to_string(),
+                        });
                     }
                 },
             }
@@ -631,7 +648,7 @@ impl MessageType for Error {
                 return Err(OfpSerializationError::UnexpectedValueError {
                     value: format!("{:x}", error_type),
                     field: "error type".to_string(),
-                    message: "error".to_string()
+                    message: "error".to_string(),
                 });
             }
         };
@@ -644,13 +661,13 @@ impl MessageType for Error {
 /// Encapsulates handling of messages implementing `MessageType` trait.
 pub mod message {
     use super::*;
-    use std::io::Write;
     use ofp_header::{OfpHeader, OPENFLOW_0_04_VERSION};
     use ofp_message::{OfpMessage, OfpSerializationError};
     use openflow::MsgCode;
+    use std::io::Write;
 
     pub struct Message0x04 {
-        inner: Message
+        inner: Message,
     }
 
     impl From<Message> for Message0x04 {
@@ -660,7 +677,6 @@ pub mod message {
     }
 
     impl Message0x04 {
-
         pub fn message(self) -> Message {
             self.inner
         }
@@ -720,8 +736,8 @@ pub mod message {
                 MsgCode::MeterMod => Ok(29),
                 c => Err(OfpSerializationError::UnsupportedMessageCode {
                     version: OPENFLOW_0_04_VERSION,
-                    code: *c
-                })
+                    code: *c,
+                }),
             }
         }
 
@@ -764,10 +780,12 @@ pub mod message {
 
         fn header_of(xid: u32, msg: &Message0x04) -> Result<OfpHeader, OfpSerializationError> {
             let sizeof_buf = Self::size_of(&msg);
-            Ok(OfpHeader::new(OPENFLOW_0_04_VERSION,
-                           Self::msg_code_of_message_u8(&msg.inner)?,
-                           sizeof_buf as u16,
-                           xid))
+            Ok(OfpHeader::new(
+                OPENFLOW_0_04_VERSION,
+                Self::msg_code_of_message_u8(&msg.inner)?,
+                sizeof_buf as u16,
+                xid,
+            ))
         }
 
         fn marshal(xid: u32, msg: Message0x04) -> Result<Vec<u8>, OfpSerializationError> {
@@ -778,48 +796,53 @@ pub mod message {
             Ok(bytes)
         }
 
-        fn parse(header: &OfpHeader, buf: &[u8]) -> Result<(u32, Message0x04), OfpSerializationError> {
+        fn parse(
+            header: &OfpHeader,
+            buf: &[u8],
+        ) -> Result<(u32, Message0x04), OfpSerializationError> {
             let typ = header.type_code();
-            let msg = Message0x04 { inner: match typ {
-                MsgCode::Hello => {
-                    debug!("Message received: Hello!");
-                    Message::Hello
-                }
-                MsgCode::Error => {
-                    debug!("Message received: Error");
-                    Message::Error(Error::parse(buf)?)
-                }
-                MsgCode::EchoReq => Message::EchoRequest(buf.to_vec()),
-                MsgCode::EchoResp => Message::EchoReply(buf.to_vec()),
-                MsgCode::FeaturesResp => {
-                    debug!("Message received: FeaturesResp");
-                    Message::FeaturesReply(SwitchFeatures::parse(buf)?)
-                }
-                MsgCode::PacketIn => {
-                    debug!("Message received: PacketIn");
-                    Message::PacketIn(PacketIn::parse(buf)?)
-                }
-                MsgCode::PacketOut => {
-                    debug!("Message received: PacketOut");
-                    Message::PacketOut(PacketOut::parse(buf)?)
-                }
-                MsgCode::BarrierReq => Message::BarrierRequest,
-                MsgCode::BarrierResp => Message::BarrierReply,
-                code => return Result::Err(OfpSerializationError::UnexpectedValueError {
-                    value: format!("0x{:x}", code as u8),
-                    field: "message type".to_string(),
-                    message: "message header".to_string()
-                }),
-            }};
+            let msg = Message0x04 {
+                inner: match typ {
+                    MsgCode::Hello => {
+                        debug!("Message received: Hello!");
+                        Message::Hello
+                    }
+                    MsgCode::Error => {
+                        debug!("Message received: Error");
+                        Message::Error(Error::parse(buf)?)
+                    }
+                    MsgCode::EchoReq => Message::EchoRequest(buf.to_vec()),
+                    MsgCode::EchoResp => Message::EchoReply(buf.to_vec()),
+                    MsgCode::FeaturesResp => {
+                        debug!("Message received: FeaturesResp");
+                        Message::FeaturesReply(SwitchFeatures::parse(buf)?)
+                    }
+                    MsgCode::PacketIn => {
+                        debug!("Message received: PacketIn");
+                        Message::PacketIn(PacketIn::parse(buf)?)
+                    }
+                    MsgCode::PacketOut => {
+                        debug!("Message received: PacketOut");
+                        Message::PacketOut(PacketOut::parse(buf)?)
+                    }
+                    MsgCode::BarrierReq => Message::BarrierRequest,
+                    MsgCode::BarrierResp => Message::BarrierReply,
+                    code => {
+                        return Result::Err(OfpSerializationError::UnexpectedValueError {
+                            value: format!("0x{:x}", code as u8),
+                            field: "message type".to_string(),
+                            message: "message header".to_string(),
+                        })
+                    }
+                },
+            };
             Ok((header.xid(), msg))
         }
     }
 
     #[cfg(test)]
-    mod tests {
-    }
+    mod tests {}
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

@@ -5,25 +5,25 @@ use futures::sync::mpsc;
 use futures::sync::mpsc::{Receiver, Sender};
 
 use ofp_header::{Xid, OPENFLOW_0_04_VERSION};
-use rust_ofp::ofp_device::Device;
-use rust_ofp::ofp_device::{ DeviceId, DeviceEvent };
 use rust_ofp::message::Message;
-use std::sync::Mutex;
-use std::sync::Arc;
+use rust_ofp::ofp_device::Device;
+use rust_ofp::ofp_device::{DeviceEvent, DeviceId};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 const MAX_SUPPORTED_OF_VERSION: u8 = OPENFLOW_0_04_VERSION;
 
 struct Devices {
     unknown_devices: Vec<Device>,
-    devices: HashMap<DeviceId, Device>
+    devices: HashMap<DeviceId, Device>,
 }
 
 impl Devices {
     fn new() -> Devices {
         Devices {
             unknown_devices: Vec::new(),
-            devices: HashMap::new()
+            devices: HashMap::new(),
         }
     }
 
@@ -36,7 +36,9 @@ impl Devices {
     }
 
     fn find_unknown_device_index(&self, dpid: &DeviceId) -> Option<usize> {
-        self.unknown_devices.iter().enumerate()
+        self.unknown_devices
+            .iter()
+            .enumerate()
             .find(|&dev| dev.1.has_device_id(dpid))
             .map(|r| r.0)
     }
@@ -51,12 +53,12 @@ impl Devices {
                 match device.get_device_id() {
                     Some(dpid) => {
                         self.devices.insert(dpid, device);
-                    },
+                    }
                     None => {
                         warn!("Tried to insert a device without a known id");
                     }
                 }
-            },
+            }
             None => {
                 warn!("Couldn't find device with dpid {}", dpid);
             }
@@ -67,9 +69,8 @@ impl Devices {
         match event {
             DeviceEvent::SwitchConnected(device_id) => {
                 self.handle_switch_connected(device_id.clone());
-            },
-            _ => {
             }
+            _ => {}
         }
     }
 
@@ -93,14 +94,12 @@ pub trait DeviceControllerApp {
 }
 
 struct DeviceControllerApps {
-    apps: Vec<Box<DeviceControllerApp + Sync + Send>>
+    apps: Vec<Box<DeviceControllerApp + Sync + Send>>,
 }
 
 impl DeviceControllerApps {
     pub fn new() -> DeviceControllerApps {
-        DeviceControllerApps {
-            apps: Vec::new()
-        }
+        DeviceControllerApps { apps: Vec::new() }
     }
 
     pub fn start(&mut self) {
@@ -118,7 +117,7 @@ impl DeviceControllerApps {
         }
     }
 
-    pub fn register_app(&mut self, app: Box<DeviceControllerApp+ Sync + Send>) {
+    pub fn register_app(&mut self, app: Box<DeviceControllerApp + Sync + Send>) {
         self.apps.push(app);
     }
 }
@@ -128,7 +127,7 @@ pub struct DeviceController {
     device_event_rx: Mutex<Receiver<DeviceEvent>>,
     device_event_tx: Sender<DeviceEvent>,
 
-    apps: Mutex<DeviceControllerApps>
+    apps: Mutex<DeviceControllerApps>,
 }
 
 const MESSAGES_CHANNEL_BUFFER: usize = 1000;
@@ -139,7 +138,7 @@ impl DeviceController {
             devices: Mutex::new(Devices::new()),
             device_event_rx: Mutex::new(rx),
             device_event_tx: tx,
-            apps: Mutex::new(DeviceControllerApps::new())
+            apps: Mutex::new(DeviceControllerApps::new()),
         }
     }
 
@@ -162,7 +161,9 @@ impl DeviceController {
     pub fn register_device(&self, stream: TcpStream) {
         let mut device_writer = self.create_device(stream);
         // TODO handle a future properly here to ensure Hello is sent
-        device_writer.try_send((MAX_SUPPORTED_OF_VERSION, 0, Message::Hello)).unwrap();
+        device_writer
+            .try_send((MAX_SUPPORTED_OF_VERSION, 0, Message::Hello))
+            .unwrap();
     }
 
     pub fn register_app(&self, app: Box<DeviceControllerApp + Send + Sync>) {
@@ -188,14 +189,12 @@ impl DeviceController {
 }
 
 pub struct DeviceControllerFuture {
-    controller: Arc<DeviceController>
+    controller: Arc<DeviceController>,
 }
 
 impl DeviceControllerFuture {
     pub fn new(controller: Arc<DeviceController>) -> DeviceControllerFuture {
-        DeviceControllerFuture {
-            controller
-        }
+        DeviceControllerFuture { controller }
     }
 
     fn handle_event(&self, event: DeviceEvent) {
@@ -214,7 +213,7 @@ impl Future for DeviceControllerFuture {
             match try_ready!(rx.poll()) {
                 Some(event) => {
                     self.handle_event(event);
-                },
+                }
                 None => {
                     return Ok(Async::Ready(()));
                 }

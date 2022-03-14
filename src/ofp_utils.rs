@@ -1,13 +1,12 @@
-use std::io::Cursor;
-use std::io::BufRead;
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Buf;
-use byteorder::{ ReadBytesExt, WriteBytesExt};
+use std::io::BufRead;
+use std::io::Cursor;
 
 macro_rules! create_empty_wrapper {
     ($wrapped_name:ident, $wrapper_name:ident) => {
-        struct $wrapper_name {
-        }
-    }
+        struct $wrapper_name {}
+    };
 }
 
 pub fn write_padding_bytes(bytes: &mut Vec<u8>, count: usize) {

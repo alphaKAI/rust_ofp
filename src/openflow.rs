@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, Error};
+use std::fmt::{Display, Error, Formatter};
 
 /// OpenFlow message type codes, used by headers to identify meaning of the rest of a message.
 #[repr(u8)]
@@ -76,7 +76,7 @@ impl Display for MsgCode {
             MsgCode::GetAsyncReq => "GetAsyncReq",
             MsgCode::GetAsyncResp => "GetAsyncResp",
             MsgCode::SetAsync => "SetAsync",
-            MsgCode::MeterMod => "MeterMod"
+            MsgCode::MeterMod => "MeterMod",
         };
         f.write_str(text)
     }

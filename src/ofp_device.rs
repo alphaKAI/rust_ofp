@@ -1,4 +1,3 @@
-
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
@@ -7,26 +6,28 @@ use futures::sync::mpsc;
 use futures::sync::mpsc::{Receiver, Sender};
 
 use std::fmt;
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 
-use rust_ofp::ofp_message::{OfpMessage, OfpSerializationError};
 use ofp_header::{OfpHeader, Xid};
 use ofp_serialization;
+use rust_ofp::ofp_message::{OfpMessage, OfpSerializationError};
 
 use bytes::BytesMut;
 
 use rust_ofp::message::Message;
-use tokio::io::{ ReadHalf, WriteHalf };
+use tokio::io::{ReadHalf, WriteHalf};
 
-use rust_ofp::message::{ PacketIn, StatsResp, StatsRespBody, PortStats, FlowStats, TableStats, QueueStats };
 use ofp_header::OPENFLOW_0_01_VERSION;
+use rust_ofp::message::{
+    FlowStats, PacketIn, PortStats, QueueStats, StatsResp, StatsRespBody, TableStats,
+};
 
 const WRITING_CHANNEL_SIZE: usize = 1000;
 
 enum OpenFlowVersion {
     Unknown,
-    Known(u8)
+    Known(u8),
 }
 
 /// Selects the highest OF version that is supported by the device and this lib.
@@ -48,7 +49,6 @@ pub trait OfpDevice {
     fn process_message(&self, header: OfpHeader, message: Self::Message);
 }
 
-
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DeviceId(u64);
 
@@ -65,15 +65,13 @@ struct DeviceState {
 
 impl DeviceState {
     fn new() -> DeviceState {
-        DeviceState {
-            switch_id: None,
-        }
+        DeviceState { switch_id: None }
     }
 
     pub fn has_device_id(&self, device_id: &DeviceId) -> bool {
         match &self.switch_id {
             Some(ref id) => id == device_id,
-            None => false
+            None => false,
         }
     }
 
@@ -89,34 +87,34 @@ pub enum DeviceEvent {
     TableStats(DeviceId, Vec<TableStats>),
     QueueStats(DeviceId, Vec<QueueStats>),
     AggregateStats(DeviceId, u64, u64, u32),
-    PacketIn(DeviceId, PacketIn)
+    PacketIn(DeviceId, PacketIn),
 }
 
 struct MessageProcessor {
     state: Arc<Mutex<DeviceState>>,
     tx: Sender<DeviceEvent>,
     writer: Sender<(u8, Xid, Message)>,
-    version: OpenFlowVersion
+    version: OpenFlowVersion,
 }
 
 impl MessageProcessor {
-    fn new(state: Arc<Mutex<DeviceState>>,
-           tx: Sender<DeviceEvent>,
-           writer: Sender<(u8, Xid, Message)>) -> MessageProcessor {
+    fn new(
+        state: Arc<Mutex<DeviceState>>,
+        tx: Sender<DeviceEvent>,
+        writer: Sender<(u8, Xid, Message)>,
+    ) -> MessageProcessor {
         MessageProcessor {
             state,
             tx,
             writer,
-            version: OpenFlowVersion::Unknown
+            version: OpenFlowVersion::Unknown,
         }
     }
 
     fn send_message(&mut self, xid: Xid, message: Message) {
         let version = match self.version {
-            OpenFlowVersion::Unknown => {
-                OPENFLOW_0_01_VERSION
-            },
-            OpenFlowVersion::Known(version) => version
+            OpenFlowVersion::Unknown => OPENFLOW_0_01_VERSION,
+            OpenFlowVersion::Known(version) => version,
         };
         self.writer.try_send((version, xid, message)).unwrap();
     }
@@ -127,13 +125,16 @@ impl MessageProcessor {
         match message {
             Message::Hello => {
                 let version = select_openflow_version(header.version());
-                info!("Received Hello message with OF version {}, using version {}",
-                      header.version(), version);
+                info!(
+                    "Received Hello message with OF version {}, using version {}",
+                    header.version(),
+                    version
+                );
 
                 self.version = OpenFlowVersion::Known(version);
 
                 self.send_message(header.xid(), Message::FeaturesReq);
-            },
+            }
             Message::Error(err) => println!("Error: {:?}", err),
             Message::EchoRequest(ref bytes) => {
                 self.send_message(header.xid(), Message::EchoReply(bytes.clone()))
@@ -149,59 +150,64 @@ impl MessageProcessor {
                 let switch_id = DeviceId(feats.datapath_id);
                 state.switch_id = Some(switch_id.clone());
                 send_to_controller = Some(DeviceEvent::SwitchConnected(switch_id));
-            },
+            }
             Message::PacketIn(pkt) => {
                 let mut state = self.state.lock().unwrap();
                 let device_id = state.get_device_id().unwrap();
                 send_to_controller = Some(DeviceEvent::PacketIn(device_id, pkt));
-            },
+            }
             Message::StatsReply(stats) => {
                 let mut state = self.state.lock().unwrap();
                 let device_id = state.get_device_id().unwrap();
                 send_to_controller = self.handle_stats(device_id, stats);
-            },
-            Message::FlowMod(_) |
-            Message::FlowRemoved(_) |
-            Message::PortStatus(_) |
-            Message::PacketOut(_) |
-            Message::BarrierRequest |
-            Message::BarrierReply |
-            Message::StatsRequest(_) => (),
+            }
+            Message::FlowMod(_)
+            | Message::FlowRemoved(_)
+            | Message::PortStatus(_)
+            | Message::PacketOut(_)
+            | Message::BarrierRequest
+            | Message::BarrierReply
+            | Message::StatsRequest(_) => (),
         }
 
         match send_to_controller {
             Some(event) => {
                 self.tx.try_send(event).unwrap();
-            },
+            }
             None => {}
         }
     }
 
     fn handle_stats(&self, device_id: DeviceId, stats: StatsResp) -> Option<DeviceEvent> {
         match stats.body {
-            StatsRespBody::DescBody{ .. } => {
-                None
-            },
-            StatsRespBody::PortBody{ port_stats } => {
+            StatsRespBody::DescBody { .. } => None,
+            StatsRespBody::PortBody { port_stats } => {
                 Some(DeviceEvent::PortStats(device_id, port_stats))
-            },
-            StatsRespBody::TableBody{ table_stats } => {
+            }
+            StatsRespBody::TableBody { table_stats } => {
                 Some(DeviceEvent::TableStats(device_id, table_stats))
-            },
-            StatsRespBody::AggregateStatsBody{ packet_count, byte_count, flow_count } => {
+            }
+            StatsRespBody::AggregateStatsBody {
+                packet_count,
+                byte_count,
+                flow_count,
+            } => {
                 // TODO improve this. Need to track the request to make the response make
                 // sense.
-                Some(DeviceEvent::AggregateStats(device_id, packet_count, byte_count, flow_count))
-            },
-            StatsRespBody::FlowStatsBody{ flow_stats } => {
+                Some(DeviceEvent::AggregateStats(
+                    device_id,
+                    packet_count,
+                    byte_count,
+                    flow_count,
+                ))
+            }
+            StatsRespBody::FlowStatsBody { flow_stats } => {
                 Some(DeviceEvent::FlowStats(device_id, flow_stats))
-            },
-            StatsRespBody::QueueBody{ queue_stats } => {
+            }
+            StatsRespBody::QueueBody { queue_stats } => {
                 Some(DeviceEvent::QueueStats(device_id, queue_stats))
-            },
-            StatsRespBody::VendorBody => {
-                None
-            },
+            }
+            StatsRespBody::VendorBody => None,
         }
     }
 }
@@ -224,11 +230,11 @@ impl Device {
         let (writer_tx, writer_rx) = mpsc::channel(WRITING_CHANNEL_SIZE);
         let writer = OfpMessageWriter::new(write, writer_rx);
         let state = Arc::new(Mutex::new(DeviceState::new()));
-        let processor = Arc::new(
-            Mutex::new(
-                MessageProcessor::new(state.clone(), tx, writer_tx.clone())
-            )
-        );
+        let processor = Arc::new(Mutex::new(MessageProcessor::new(
+            state.clone(),
+            tx,
+            writer_tx.clone(),
+        )));
 
         let reader = OfpMessageReader::new(read);
         tokio::spawn(writer);
@@ -238,7 +244,7 @@ impl Device {
             state,
             writer: Mutex::new(writer_tx),
             openflow_version: OpenFlowVersion::Unknown,
-            processor
+            processor,
         }
     }
 
@@ -282,10 +288,7 @@ struct DeviceFuture {
 
 impl DeviceFuture {
     fn new(processor: Arc<Mutex<MessageProcessor>>, reader: OfpMessageReader) -> DeviceFuture {
-        DeviceFuture {
-            reader,
-            processor,
-        }
+        DeviceFuture { reader, processor }
     }
 }
 
@@ -302,14 +305,12 @@ impl Future for DeviceFuture {
                 Ok(Async::Ready(Some((header, message)))) => {
                     let mut processor = self.processor.lock().unwrap();
                     processor.process_message(header, message);
-                },
-                Ok(Async::NotReady) => {
-                    return Ok(Async::NotReady)
-                },
+                }
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Ok(Async::Ready(None)) => {
                     info!("Device disconnected");
-                    return Ok(Async::Ready(()))
-                },
+                    return Ok(Async::Ready(()));
+                }
                 Err(e) => {
                     error!("Error on device stream reader: {:?}", e);
                     panic!("Error on reader: {}", e); // TODO
@@ -391,7 +392,7 @@ impl OfpMessageReader {
         let len_1 = *self.rd.get(2).unwrap() as usize;
         let len_2 = *self.rd.get(3).unwrap() as usize;
 
-        return (len_1 << 8) + len_2
+        return (len_1 << 8) + len_2;
     }
 
     fn parse_message(&mut self) -> Result<(OfpHeader, Message), OfpSerializationError> {
@@ -412,9 +413,7 @@ impl Stream for OfpMessageReader {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         let res = self.read_message_data();
         match res {
-            Ok(Async::NotReady) => {
-                Ok(Async::NotReady)
-            },
+            Ok(Async::NotReady) => Ok(Async::NotReady),
             Ok(Async::Ready(())) => {
                 if self.have_full_message() {
                     let message = self.parse_message()?;
@@ -423,7 +422,7 @@ impl Stream for OfpMessageReader {
                     info!("Reading stream ended");
                     Ok(Async::Ready(None))
                 }
-            },
+            }
             Err(e) => {
                 panic!("Failed to read message: {:?}", e);
             }
@@ -432,7 +431,7 @@ impl Stream for OfpMessageReader {
 }
 
 struct OfpMessageWriter {
-    socket:  WriteHalf<TcpStream>,
+    socket: WriteHalf<TcpStream>,
     rx: Receiver<(u8, Xid, Message)>,
     message: Option<Vec<u8>>,
 }
@@ -455,28 +454,25 @@ impl OfpMessageWriter {
                     Ok(Async::NotReady) => {
                         self.message.replace(bytes);
                         Ok(Async::NotReady)
-                    },
+                    }
                     Ok(Async::Ready(written)) => {
                         if written != bytes.len() {
                             panic!("Sender: Could not write all data"); // TODO
                         }
                         Ok(Async::Ready(()))
-                    },
+                    }
                     Err(e) => {
                         match e.kind() {
-                            io::ErrorKind::BrokenPipe => {
-                                Ok(Async::Ready(()))
-                            },
+                            io::ErrorKind::BrokenPipe => Ok(Async::Ready(())),
                             _ => {
-                                panic!("Sender: Error writing to socket: {:?}", e); // TODO
+                                panic!("Sender: Error writing to socket: {:?}", e);
+                                // TODO
                             }
                         }
                     }
                 }
-            },
-            None => {
-                Ok(Async::Ready(()))
             }
+            None => Ok(Async::Ready(())),
         }
     }
 }
@@ -498,14 +494,14 @@ impl Future for OfpMessageWriter {
                         Ok(msg) => {
                             self.message.replace(msg);
                             try_ready!(self.send_current_message());
-                        },
+                        }
                         Err(e) => {
                             // TODO put message in error log. It shouldn't be moved.
                             warn!("Failed to serialize message. Error: {}", e);
                             continue;
                         }
                     }
-                },
+                }
                 None => {
                     return Ok(Async::Ready(()));
                 }

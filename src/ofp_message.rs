@@ -1,32 +1,29 @@
-use ofp_header::{ OfpHeader, Xid };
-use std::io;
+use ofp_header::{OfpHeader, Xid};
 use openflow::MsgCode;
+use std::io;
 
 #[derive(Debug, Fail)]
 pub enum OfpSerializationError {
     #[fail(display = "IO Error: {}", error)]
-    IoError {
-        error: io::Error,
-    },
-    #[fail(display = "Unexpected value '{}' at field '{}' of '{}'", value, field, message)]
+    IoError { error: io::Error },
+    #[fail(
+        display = "Unexpected value '{}' at field '{}' of '{}'",
+        value, field, message
+    )]
     UnexpectedValueError {
         value: String,
         field: String,
         message: String,
     },
     #[fail(display = "Parsing error: {}", message)]
-    ParsingError {
-        message: String,
-    },
+    ParsingError { message: String },
     #[fail(display = "Unsupported OpenFlow version: {}", version)]
-    UnsupportedVersion {
-        version: u8
-    },
-    #[fail(display = "Unsupported OpenFlow message code {} for version: {}", code, version)]
-    UnsupportedMessageCode {
-        version: u8,
-        code: MsgCode
-    }
+    UnsupportedVersion { version: u8 },
+    #[fail(
+        display = "Unsupported OpenFlow message code {} for version: {}",
+        code, version
+    )]
+    UnsupportedMessageCode { version: u8, code: MsgCode },
 }
 
 /// OpenFlow Message
@@ -41,5 +38,7 @@ pub trait OfpMessage {
     fn marshal(Xid, Self) -> Result<Vec<u8>, OfpSerializationError>;
     /// Returns a pair `(u32, OfpMessage)` of the transaction id and OpenFlow message parsed from
     /// the given OpenFlow header `header`, and buffer `buf`.
-    fn parse(&OfpHeader, &[u8]) -> Result<(Xid, Self), OfpSerializationError> where Self: Sized;
+    fn parse(&OfpHeader, &[u8]) -> Result<(Xid, Self), OfpSerializationError>
+    where
+        Self: Sized;
 }

@@ -1,6 +1,6 @@
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Cursor;
 use std::mem::{size_of, transmute};
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use rust_ofp::openflow::MsgCode;
 
@@ -44,7 +44,9 @@ impl OfpHeader {
     pub fn marshal(bytes: &mut Vec<u8>, header: OfpHeader) {
         bytes.write_u8(header.version()).unwrap();
         bytes.write_u8(header.type_code() as u8).unwrap();
-        bytes.write_u16::<BigEndian>(header.length() as u16).unwrap();
+        bytes
+            .write_u16::<BigEndian>(header.length() as u16)
+            .unwrap();
         bytes.write_u32::<BigEndian>(header.xid()).unwrap();
     }
 

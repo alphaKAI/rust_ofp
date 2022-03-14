@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use message::FlowMod;
+use message::Message;
+use ofp_controller::{DeviceController, DeviceControllerApp};
+use ofp_device::{DeviceEvent, DeviceId};
 use rust_ofp::message::{Action, PacketIn, PacketOut, Pattern, PseudoPort};
 use rust_ofp::openflow0x01::message::{add_flow, parse_payload};
-use ofp_controller::{DeviceControllerApp, DeviceController};
-use ofp_device::{ DeviceId, DeviceEvent };
+use std::collections::HashMap;
 use std::sync::Arc;
-use message::Message;
-use message::FlowMod;
 
 /// Implements L2 learning switch functionality. Switches forward packets to the
 /// learning controller, which will examine the packet and learn the source-port
@@ -25,7 +25,7 @@ use message::FlowMod;
 ///    the destination is unknown, it floods the packet out all ports.
 pub struct LearningSwitch {
     known_hosts: HashMap<u64, u16>,
-    controller: Arc<DeviceController>
+    controller: Arc<DeviceController>,
 }
 
 impl LearningSwitch {
@@ -74,7 +74,10 @@ impl LearningSwitch {
     }
 
     pub fn new(controller: Arc<DeviceController>) -> LearningSwitch {
-        LearningSwitch { known_hosts: HashMap::new(), controller }
+        LearningSwitch {
+            known_hosts: HashMap::new(),
+            controller,
+        }
     }
 
     fn packet_in(&mut self, sw: &DeviceId, pkt: &PacketIn) {
@@ -83,22 +86,24 @@ impl LearningSwitch {
     }
 
     fn send_flow_mod(&self, device: &DeviceId, xid: u32, message: FlowMod) {
-        self.controller.send_message(device, xid, Message::FlowMod(message));
+        self.controller
+            .send_message(device, xid, Message::FlowMod(message));
     }
 
     fn send_packet_out(&self, device: &DeviceId, xid: u32, pkt: PacketOut) {
-        self.controller.send_message(device, xid, Message::PacketOut(pkt));
+        self.controller
+            .send_message(device, xid, Message::PacketOut(pkt));
     }
 }
 
 pub struct LearningSwitchApp {
-    switch: LearningSwitch
+    switch: LearningSwitch,
 }
 
 impl LearningSwitchApp {
     pub fn new(controller: Arc<DeviceController>) -> LearningSwitchApp {
         LearningSwitchApp {
-            switch: LearningSwitch::new(controller)
+            switch: LearningSwitch::new(controller),
         }
     }
 }
@@ -108,7 +113,7 @@ impl DeviceControllerApp for LearningSwitchApp {
         match *event {
             DeviceEvent::PacketIn(ref device_id, ref packet) => {
                 self.switch.packet_in(device_id, packet);
-            },
+            }
             _ => {}
         }
     }

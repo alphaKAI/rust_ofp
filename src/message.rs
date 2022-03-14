@@ -1,4 +1,3 @@
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct Wildcards {
     pub in_port: bool,
@@ -19,12 +18,10 @@ impl Wildcards {
     fn mask_bits(x: &Option<Mask<u32>>) -> u32 {
         match *x {
             None => 32,
-            Some(ref x) => {
-                match x.mask {
-                    None => 0,
-                    Some(m) => m,
-                }
-            }
+            Some(ref x) => match x.mask {
+                None => 0,
+                Some(m) => m,
+            },
         }
     }
 }
@@ -151,7 +148,7 @@ impl Pattern {
             nw_src: Wildcards::mask_bits(&m.nw_src),
             nw_dst: Wildcards::mask_bits(&m.nw_dst),
             dl_vlan_pcp: m.dl_vlan_pcp.is_none(),
-            nw_tos: m.nw_tos.is_none()
+            nw_tos: m.nw_tos.is_none(),
         }
     }
 }
@@ -183,8 +180,7 @@ pub enum FlowModCmd {
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct TableId(pub u8);
 
-impl TableId {
-}
+impl TableId {}
 
 /// Represents modifications to a flow table from the controller.
 #[derive(Debug, PartialEq)]
@@ -230,8 +226,7 @@ pub enum Payload {
 impl Payload {
     pub fn size_of(payload: &Payload) -> usize {
         match *payload {
-            Payload::Buffered(_, ref buf) |
-            Payload::NotBuffered(ref buf) => buf.len(),
+            Payload::Buffered(_, ref buf) | Payload::NotBuffered(ref buf) => buf.len(),
         }
     }
 }
@@ -243,7 +238,6 @@ pub enum PacketInReason {
     NoMatch,
     ExplicitSend,
 }
-
 
 /// Represents packets received by the datapath and sent to the controller.
 #[derive(Debug, Clone, PartialEq)]
@@ -371,10 +365,11 @@ pub enum StatsReqType {
 #[derive(Debug, PartialEq)]
 pub enum StatsReqBody {
     DescBody,
-    FlowStatsBody { // Also used for aggregate stats
-    pattern: Pattern,
+    FlowStatsBody {
+        // Also used for aggregate stats
+        pattern: Pattern,
         table_id: u8,
-        out_port: u16
+        out_port: u16,
     },
     TableBody,
     PortBody {
@@ -384,7 +379,7 @@ pub enum StatsReqBody {
         port_no: u16,
         queue_id: u32,
     },
-    VendorBody
+    VendorBody,
 }
 
 /// Represents stats request from the controller.
@@ -393,7 +388,7 @@ pub struct StatsReq {
     // TODO we shouldn't need the type, it can be inferred by the body
     pub req_type: StatsReqType,
     pub flags: u16,
-    pub body: StatsReqBody
+    pub body: StatsReqBody,
 }
 
 #[derive(Debug, PartialEq)]
@@ -408,13 +403,13 @@ pub struct FlowStats {
     pub cookie: u64,
     pub packet_count: u64,
     pub byte_count: u64,
-    pub actions: Vec<Action>
+    pub actions: Vec<Action>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct TransmissionCounter {
     pub rx: u64,
-    pub tx: u64
+    pub tx: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -427,7 +422,7 @@ pub struct PortStats {
     pub rx_frame_errors: u64,
     pub rx_over_errors: u64,
     pub rx_crc_errors: u64,
-    pub collisions: u64
+    pub collisions: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -436,7 +431,7 @@ pub struct QueueStats {
     pub queue_id: u32,
     pub tx_bytes: u64,
     pub tx_packets: u64,
-    pub tx_errors: u64
+    pub tx_errors: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -447,7 +442,7 @@ pub struct TableStats {
     pub max_entries: u32,
     pub active_count: u32,
     pub lookup_count: u64,
-    pub matched_count: u64
+    pub matched_count: u64,
 }
 
 /// Type of Body for Stats Response
@@ -458,10 +453,10 @@ pub enum StatsRespBody {
         hardware_desc: String,
         software_desc: String,
         serial_number: String,
-        datapath_desc: String
+        datapath_desc: String,
     },
     FlowStatsBody {
-        flow_stats: Vec<FlowStats>
+        flow_stats: Vec<FlowStats>,
     },
     AggregateStatsBody {
         packet_count: u64,
@@ -469,22 +464,22 @@ pub enum StatsRespBody {
         flow_count: u32,
     },
     TableBody {
-        table_stats: Vec<TableStats>
+        table_stats: Vec<TableStats>,
     },
     PortBody {
-        port_stats: Vec<PortStats>
+        port_stats: Vec<PortStats>,
     },
     QueueBody {
-        queue_stats: Vec<QueueStats>
+        queue_stats: Vec<QueueStats>,
     },
-    VendorBody
+    VendorBody,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct StatsResp {
     pub req_type: StatsReqType, // TODO not required because of the body enum representing the type
     pub flags: u16,
-    pub body: StatsRespBody
+    pub body: StatsRespBody,
 }
 
 /// What changed about a physical port.
@@ -604,5 +599,5 @@ pub enum Message {
     BarrierRequest,
     BarrierReply,
     StatsRequest(StatsReq),
-    StatsReply(StatsResp)
+    StatsReply(StatsResp),
 }
