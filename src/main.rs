@@ -11,12 +11,12 @@ use tokio::prelude::*;
 extern crate rust_ofp;
 use rust_ofp::apps::StatsProbing;
 use rust_ofp::learning_switch::LearningSwitchApp;
-use rust_ofp::ofp_controller::{DeviceController, DeviceControllerFuture};
+use rust_ofp::ofp_controller::{DeviceController, DeviceControllerFuture, OfpVersion};
 use std::sync::Arc;
 
 fn process(socket: TcpStream, controller: Arc<DeviceController>) {
     info!("New device connected: {:?}", socket);
-    controller.register_device(socket);
+    controller.register_device(socket, Some(OfpVersion::_01));
 }
 
 fn main() {

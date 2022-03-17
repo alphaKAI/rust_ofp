@@ -4,7 +4,7 @@ use tokio::prelude::*;
 use futures::sync::mpsc;
 use futures::sync::mpsc::{Receiver, Sender};
 
-use ofp_header::{Xid, OPENFLOW_0_04_VERSION};
+use ofp_header::{Xid, OPENFLOW_0_01_VERSION, OPENFLOW_0_04_VERSION};
 use rust_ofp::message::Message;
 use rust_ofp::ofp_device::Device;
 use rust_ofp::ofp_device::{DeviceEvent, DeviceId};
@@ -13,6 +13,29 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 const MAX_SUPPORTED_OF_VERSION: u8 = OPENFLOW_0_04_VERSION;
+pub enum OfpVersion {
+    _01,
+    _04,
+}
+
+impl Into<u8> for OfpVersion {
+    fn into(self) -> u8 {
+        match self {
+            Self::_01 => OPENFLOW_0_01_VERSION,
+            Self::_04 => OPENFLOW_0_04_VERSION
+        }
+    }
+}
+
+impl From<u8> for OfpVersion {
+    fn from(v: u8) -> Self {
+        match v {
+            OPENFLOW_0_01_VERSION => OfpVersion::_01,
+            OPENFLOW_0_04_VERSION => OfpVersion::_04,
+            _ => panic!("Fatal error : Specified unsupported version - {}", v)
+        }
+    }
+}
 
 struct Devices {
     unknown_devices: Vec<Device>,
@@ -156,11 +179,11 @@ impl DeviceController {
         self.devices.lock().unwrap().list_all_devices()
     }
 
-    pub fn register_device(&self, stream: TcpStream) {
+    pub fn register_device(&self, stream: TcpStream, version: Option<OfpVersion>) {
         let mut device_writer = self.create_device(stream);
         // TODO handle a future properly here to ensure Hello is sent
         device_writer
-            .try_send((MAX_SUPPORTED_OF_VERSION, 0, Message::Hello))
+            .try_send((version.unwrap_or(MAX_SUPPORTED_OF_VERSION.into()).into(), 0, Message::Hello))
             .unwrap();
     }
 
