@@ -117,6 +117,7 @@ impl Tcp {
 pub struct Udp {
     pub src: u16,
     pub dst: u16,
+    pub length: u16,
     pub chksum: u16,
     pub payload: Vec<u8>,
 }
@@ -132,11 +133,13 @@ impl Udp {
         }
         let src = bytes.read_u16::<BigEndian>().unwrap();
         let dst = bytes.read_u16::<BigEndian>().unwrap();
+        let length = bytes.read_u16::<BigEndian>().unwrap();
         let chksum = bytes.read_u16::<BigEndian>().unwrap();
         let payload = bytes.fill_buf().unwrap().to_vec();
         Some(Udp {
             src,
             dst,
+            length,
             chksum,
             payload,
         })
