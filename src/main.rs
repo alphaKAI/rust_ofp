@@ -52,6 +52,6 @@ fn main() {
         Ok(())
     });
 
-    println!("OF controller running on localhost:6633");
+    println!("OF controller running on {}:{}", addr.ip(), addr.port());
     tokio::run(lazy_future);
 }
